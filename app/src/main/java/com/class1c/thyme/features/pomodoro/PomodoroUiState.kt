@@ -17,7 +17,6 @@ data class PomodoroUIState(
     val longBreaksEnabled: Boolean = true,
     val showRounds: Boolean = longBreaksEnabled,
     val endTime: Long = 0L
-
 ) {
     val timeText: String get() = formatTime(remainingSeconds)
     val progress: Float get() = remainingSeconds / totalSeconds.toFloat()

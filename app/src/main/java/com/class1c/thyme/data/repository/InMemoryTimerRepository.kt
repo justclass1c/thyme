@@ -51,7 +51,7 @@ class InMemoryTimerRepository @Inject constructor (
     }
 
     private fun advancePhase() {
-        var nextPhase: TimerPhase = _session.value.timerPhase
+        var nextPhase: TimerPhase
         var rounds: Int = _session.value.completedRounds
         val isExpired = _session.value.isRunning && (_session.value.endTime <= System.currentTimeMillis())
 
@@ -72,7 +72,7 @@ class InMemoryTimerRepository @Inject constructor (
         } else nextPhase = TimerPhase.FOCUS
 
         val nextTotal = durationFor(nextPhase)
-        _session.update { it.copy(completedRounds = rounds, isRunning = settings.autoStartNextPhase, timerPhase = nextPhase, totalSeconds = nextTotal, remainingSeconds = nextTotal, endTime = System.currentTimeMillis() + nextTotal * 1000) }
+        _session.update { it.copy(completedRounds = rounds, isRunning = settings.autoStartNextPhase, timerPhase = nextPhase, totalSeconds = nextTotal, remainingSeconds = nextTotal, endTime = if (settings.autoStartNextPhase) System.currentTimeMillis() + nextTotal * 1000 else 0) }
     }
 
     override fun start() {
@@ -84,7 +84,7 @@ class InMemoryTimerRepository @Inject constructor (
 
     override fun pause() {
         if (!_session.value.isRunning) return // safeguard
-        _session.update { it.copy(remainingSeconds = ceil((it.endTime - System.currentTimeMillis()).toDouble() / 1000).coerceAtLeast((0.0)).toInt(), isRunning = false) }
+        _session.update { it.copy(remainingSeconds = ceil((it.endTime - System.currentTimeMillis()).toDouble() / 1000).coerceAtLeast(0.0).toInt(), isRunning = false) }
     }
 
     override fun reset() {

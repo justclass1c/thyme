@@ -18,6 +18,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
+import kotlin.math.ceil
 import kotlin.time.Duration.Companion.milliseconds
 
 @HiltViewModel
@@ -26,18 +27,19 @@ class PomodoroViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository
 ): ViewModel() {
     private val _clockText = MutableStateFlow(LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault())))
+    private val _tick = MutableStateFlow<Long>(System.currentTimeMillis())
 
     val uiState: StateFlow<PomodoroUIState> = combine(timerRepository.session, _clockText, settingsRepository.settings) { session, clock, settings ->
         PomodoroUIState(
             totalSeconds = session.totalSeconds,
-            remainingSeconds = session.remainingSeconds,
+            endTime = session.endTime,
             isRunning = session.isRunning,
             clockText = clock,
             timerPhase = session.timerPhase,
             completedRounds = session.completedRounds,
             longBreaksEnabled = settings.longBreaksEnabled,
             targetRounds = settings.roundsUntilLongBreak,
-            endTime = session.endTime
+            remainingSeconds = if (session.isRunning) ceil(((session.endTime - System.currentTimeMillis()).toDouble() / 1000)).toInt().coerceAtLeast(0) else session.remainingSeconds,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -48,8 +50,9 @@ class PomodoroViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             while (isActive) {
-                delay(1_000L.milliseconds)
                 _clockText.value = LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault()))
+                _tick.value = System.currentTimeMillis()
+                delay(1_000L.milliseconds)
             }
         }
     }

@@ -136,7 +136,10 @@ the UI screens don't know the difference, `TimerSettings*` is silent.
 - Remaining math: `ceil((endTime − now) / 1000.0).coerceAtLeast(0)` —
   **ceil**, applied at the division (ceil-after-Long-trunc is a
   no-op): the display hits `00:00` exactly at the real completion
-  instant — the same moment 2.3's alarm fires.
+  instant — the same moment 2.3's alarm fires. The `now` inside is
+  always the **real clock read at evaluation time** — never a value
+  carried through a flow (a flow-carried `now` answers "when was this
+  recorded," not "when is now" — the stale-tick +1-on-unpause lesson).
 - `pause()` = **the last tick**: one final conversion at the pause
   instant authors the snapshot; post-ticker there is no other author
   between runs (a freeze-less pause leaves the landing's stale value:
@@ -172,65 +175,66 @@ Consumers read running-ness only through `session.isRunning` — the
 one access path that keeps a future variant-A swap (derive the flag) a
 one-file model change.
 
-**Status (2026-10-21, verified in play):** `endTime` default (`0L`),
-landing epoch bookings (`nextTotal` hoist, `* 1000`), tick derivation
-through `it` re-reading `endTime` (which also self-heals a lagging
-process for free — tick self-heal, NOT §2.4 catch-up), `isExpired`
-premise gating `advancePhase()`'s FOCUS arm (old patch-checks deleted
-as dead code — break-side landings premise-free per decision #2-rev),
-`pause()` freeze (entry guard, ceil-form, coerce, `endTime` kept).
-Device behavior verified: no cascade, one step per second, `00:00` at
-the real completion instant, pause/resume/double-pause clean. Lessons
-kept: rounding happens at the smallest-precision point (ceil after
-trunc is decoration); observers re-read via `it`, writers replace via
-`update {}` (a captured moving fact clobbers fresher writers); one
-moment = one writer (`start()` owns the resume timestamp, the tick
-owned `remaining` only, landings own the clock at transitions).
+**Status (2026-10-21, demolition verified in play):** repo landed at
+97 lines — `start()` books the pair (keeps the `remainingSeconds <= 0`
+guard); `pause()` is exactly the freeze (entry guard, ceil-form,
+coerce, fiction `endTime` kept); `reset()` zeroes its pair; the
+landing is the single atomic pair-ternary; ticker, cancel dances and
+`timerJob` all swept — keep `CoroutineScope`/`@ApplicationScope` (the
+settings collector) and `ceil`. Sweep-list correction recorded:
+**`launch` stays** (the VM's clock loop keeps using it). VM landed too,
+with two play-found fixes: the ceil-form over raw epoch ms (a
+`tick / 1000` unit mix was caught in review) and — **real now inside
+the combine**, `System.currentTimeMillis()` at emission time, not the
+tick's recorded value (the stale-now lesson above: fresh bookings
+overshot by however stale the tick was — the +1 on unpause).
+Kept deviation: `clockText` remains its own minute-level flow —
+building it from the tick was rejected as unneeded complexity.
+
+Why no rollback to the E-era coroutine (settled 2026-10-21): as a
+display pulse it would have been fine — every display artifact here
+is sampling physics, pulse-home-independent — but it held the
+*authority* job that F2 removes. Kept in-process, it would produce the
+2.3 double-advance (in-process landing vs the OS alarm's landing both
+arriving), turn F8 catch-up into a drifting-counter reconciliation
+instead of a deadline subtraction, and race every pause-freeze. The
+move was a **downgrade and relocation**: authority to the timestamp
+model (act-authored bookings, single writer per break), pulse demoted
+to a display staffer.
 
 **Remaining (do not reorder):**
 
-1. ⏳ **Demolition sitting (F2-B form; repo + VM in one sitting, or the
-   countdown display freezes mid-surgery).** Sequencing (F1 amended):
-   the demolition lands **alone**; the receiver skeleton is the next
-   sitting's work; the interim `00:00`-hang is accepted.
-   - Repo: `start()` swaps the job-liveness guard for
-     `isRunning → return` (keeps the booking pair and the
-     `remainingSeconds <= 0` guard) and the whole
-     `scope.launch { … }` block dies; the cancel dances die out of
-     `pause()`/`reset()`/`skip()`; `reset()` gains its missing half
-     (`endTime = 0`); the landing becomes the pair-ternary (auto ON ⇒
-     `endTime = now + nextTotal*1000`, `isRunning = true`; OFF ⇒
-     `endTime = 0`, `isRunning = false`, paused-full) and the
-     trailing `autoStart → start()` call disappears — the landing
-     *is* the start; `timerJob` field + orphaned coroutine imports
-     (`Job`, `launch`, `delay`, `isActive`, `Duration`) swept; keep
-     `CoroutineScope`/`@ApplicationScope` (the settings collector
-     lives on) and `ceil` (the freeze).
-   - **VM pulse catch (found in the pre-sitting review):**
-     `_clockText` holds `hh:mm a` — its value changes once per
-     *minute*, and the repo tick was the thing pushing per-second
-     session updates. Post-ticker, the combine's only pulse must
-     change every second: replace the flow with
-     `_tick: MutableStateFlow<Long>` (epoch ms, same init loop, same
-     one-second `delay`) and combine `(session, _tick, settings)`;
-     the clock formatting moves from the flow into the lambda
-     (build `clockText` from the tick there).
-   - VM combine: `remaining = if (session.isRunning)` then the
-     ceil-form of `(session.endTime − tick)` with
-     `coerceAtLeast(0)`; else read the snapshot — the paused branch
-     never computes from fiction/`0` `endTime`; bind `isRunning`
-     through as-is; drop the `endTime` argument passed into UIState.
-   - `PomodoroUiState`: delete the `endTime` parameter (verified: no
-     consumers beyond the VM assignment; the 2.2 service reads
-     `endTime` from the session flow later). First-frame TODO stays
-     carried (§5).
-   - Interim battery (device): pristine paused-full, not counting;
-     one step per second (`1:00 → 0:59`); pause mid → frozen, resume
-     exact, double-pause intact; pause→reset → paused-full with
-     `endTime` zeroed; skip on a live phase lands per the settings
-     ternary; **skip at `00:00`** = the manual stand-in for the
-     missing actor — `isExpired` true → completed arm rolls and
-     counts.
+1. ⏳ **Demolition sitting — the display tail.** Display cadence
+   locked 2026-10-21 (option 1: **frame clock**). Background: the
+   first displayed phase-second was found lasting 1–2 beats — ceil
+   boundaries anchor to the *booking instant*, repaint beats to *VM
+   init*; no fixed-interval pulse is both cheap and sample-accurate
+   (the error is bounded by the period: 1 s ugly, 500 ms still visibly
+   wrong; `delay(5)` was accurate but burned ~200 wakeups/s —
+   confirmatory, rejected). The frame clock is the cheap escape:
+   sample at vsync, i.e. ride wake-ups that exist anyway, and suspend
+   for free whenever the window isn't drawn.
+   - VM: delete `_tick` entirely (its value is now consumed by
+     nothing anyway; the pulse role is superseded by the frame loop).
+     Keep `_clockText` + its init loop as landed; the combine already
+     reads real now and emits on session/settings changes — correct
+     event-driven frames, don't touch.
+   - `PomodoroUiState`: the earlier "delete the `endTime` param" is
+     **amended — re-add it**: the frame loop consumes the booking
+     instant itself. The paused still-honors-the-fiction rule moves
+     into the UI branch (paused never computes from `endTime`).
+   - UI: a small frame-clock helper (natural home: `PomodoroProgress`
+     or a sibling): while `isRunning`, loop `value = ceil((endTime −
+     now)/1000.0).coerceAtLeast(0)` → text, then `withFrameNanos {}`;
+     paused → bind the `remainingSeconds` snapshot and never loop.
+     Sub-frame-accurate transitions, zero work unrendered.
+   - Final interim battery (device): pristine paused-full, not
+     counting; `1:00 → 0:59 → 0:58` with crisp boundaries — the first
+     displayed second now ≈ 1.0 s; pause mid → frozen, resume exact,
+     double-pause intact, resume never flashes the +1; pause→reset →
+     paused-full with `endTime` zeroed; skip on a live phase lands per
+     the settings ternary; **skip at `00:00`** = the manual stand-in
+     for the missing actor — completed arm rolls and counts.
    - Knowingly broken until the receiver skeleton: automatic roll at
      the deadline (`00:00` sits until a skip) and auto-start chains;
      the full Phase-E §3 battery re-runs after that skeleton lands.
@@ -430,7 +434,7 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 | # | Decision | Choice |
 |---|----------|--------|
 | F1 | Sequencing | Phase E closed; 2.1 timestamp model before all F UI/service work; **demolition lands alone, the receiver skeleton (§2.3 first bolt) follows as its own sitting — interim `00:00`-hang accepted (2026-10-21)** |
-| F2 | Timekeeping | **Locked 2026-10-21 — model variant B**: stored `isRunning` (constant `false` default only, never a computed default); pair discipline at every writer (`isRunning = true` ⇔ fresh future `endTime`, same atomic copy); `endTime` = "appointment as booked," kept as stale fiction across pause; freeze in `pause()`; sentinel `0` = no-appointment (pristine / auto-start-OFF landing); ticker + job/cancel machinery deleted. Variant A (derive the flag) stays a one-file future swap while the `session.isRunning` access-path rule holds |
+| F2 | Timekeeping | **Locked 2026-10-21 — model variant B**: stored `isRunning` (constant `false` default only, never a computed default); pair discipline at every writer (`isRunning = true` ⇔ fresh future `endTime`, same atomic copy); `endTime` = "appointment as booked," kept as stale fiction across pause; freeze in `pause()`; sentinel `0` = no-appointment (pristine / auto-start-OFF landing); ticker + job/cancel machinery deleted. Variant A (derive the flag) stays a one-file future swap while the `session.isRunning` access-path rule holds. **Display cadence (appended 2026-10-21): frame-clock loop in the UI over the exposed `endTime`** (sub-frame accurate; zero work unrendered; `_tick` heartbeat retired; no fixed-interval pulse — its error is bounded by its period; wall-second alignment and deadline-anchored pulses both rejected) |
 | F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end |
 | F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor |
 | F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst |
