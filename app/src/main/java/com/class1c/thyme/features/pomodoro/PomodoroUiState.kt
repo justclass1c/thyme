@@ -22,7 +22,7 @@ data class PomodoroUIState(
     val progress: Float get() = remainingSeconds / totalSeconds.toFloat()
 }
 
-private fun formatTime(seconds: Int): String {
+internal fun formatTime(seconds: Int): String {
     val hours = seconds / 3600
     val minutes = (seconds / 60) - (hours * 60)
     val seconds = seconds % 60
