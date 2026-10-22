@@ -105,12 +105,6 @@ components (activities, services, receivers, channels).
 | `theme/{Theme,Color,Type}.kt` | ThymeTheme (Type.kt has `poppinsFamily`) |
 | `icons/*.kt` | hand-drawn `ImageVector`s (Refresh, PlayArrow, Pause, FastForward, Settings) |
 
-**OS-component packages — Phase F additions (new directories, siblings of `data/` and `features/`)**
-| File | Purpose |
-|---|---|
-| `alarm/TimerAlarmReceiver.kt` | 2.3's receiver — **the completion actor.** Its own *top-level* package (`class1c/thyme/alarm/`), intentionally not inside `data/` or `features/`: it is neither state nor screen — it's an OS-woken entry point (`BroadcastReceiver`) that the manifest registers by name, which then routes into the repo contract |
-| `service/TimerForegroundService.kt` | 2.2's foreground service — same reasoning: an OS-woken rendering shell. Sibling package `class1c/thyme/service/`, registered in the manifest, observer-only of the session flow |
-
 **App-level — OS registration**
 | File | Purpose |
 |---|---|
@@ -120,6 +114,27 @@ components (activities, services, receivers, channels).
 | `AndroidManifest.xml` | every OS-visible component declaration: F2.2's service + permissions, 2.3's receiver, F6/F7 permissions |
 | `res/xml/*`, `res/values/*` | backup rules, strings/colors/themes |
 | Gradle (`app/build.gradle.kts`, `gradle/libs.versions.toml`) | dependency truth; §5 carry items live here |
+
+### 1.5 Phase F task → file map (one row per task; paths relative to `app/src/main/java/com/class1c/thyme/` unless stated)
+
+| Task | Files | State |
+|---|---|---|
+| **2.1 — timestamp model** | `domain/model/TimerSession.kt` · `data/repository/InMemoryTimerRepository.kt` · `features/pomodoro/PomodoroViewModel.kt` · `features/pomodoro/PomodoroUiState.kt`; display tail: `features/pomodoro/PomodoroProgress.kt` | ✅ landed |
+| **2.1 item 2 — receiver skeleton** | **new** `alarm/TimerAlarmReceiver.kt` · `app/src/main/AndroidManifest.xml` · `domain/repository/TimerRepository.kt` · `data/repository/InMemoryTimerRepository.kt` | ⏳ next sitting |
+| **2.2 — F3 foreground service** | **new** `service/TimerForegroundService.kt` · `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · (optional) `ui/icons/*` | ⏳ |
+| **2.3 — F4 alarms (full)** | `alarm/TimerAlarmReceiver.kt` (grows) · `AndroidManifest.xml` · `data/repository/InMemoryTimerRepository.kt` · `di/TimerModule.kt` (only if an alarm-scheduler abstraction is introduced) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
+| **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ⏳ |
+| **2.5 — F5 chime** | `alarm/TimerAlarmReceiver.kt` · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ⏳ |
+| **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
+| **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `app/src/main/res/values/strings.xml` | ⏳ |
+
+Package placement: **new packages sit beside the existing ones at the
+`com.class1c.thyme` level** — `alarm/` and `service/` are OS entry
+points, so they belong *neither to `data/`* (not state) *nor to
+`features/`* (not a screen). The files inside them are rows of the
+table; a task may reuse files across rows (e.g. the receiver). This
+section is the directory-level answer; each §2.x table still carries
+the *why* per file.
 
 ---
 
