@@ -293,6 +293,16 @@ to a display staffer.
    `advancePhase()` through the completion guards (`!isRunning` /
    `endTime > now` no-ops); alarm schedule now + cancel on
    pause/reset, **gated on the pair** (never `endTime > 0` alone).
+   **Build order, four steps:** (1) the interface entry on
+   `TimerRepository` — the gated public method the receiver will call
+   (contracts change first); (2) the repo implementation: the two
+   interval guards + private `advancePhase()`, and `syncAlarm()` after
+   every writer (arm iff `isRunning`, else cancel — the pair decides);
+   (3) the receiver class per **§2.3's shape checklist** (class,
+   `@AndroidEntryPoint`, injected interface field, one-line
+   `onReceive`); (4) the manifest claims (`.alarm.TimerAlarmReceiver`,
+   `exported="false"`, the permission). Nothing in the receiver
+   decides — §2.3's mental model governs.
    Chime (2.5), exact-alarm permission fallback, onboarding rows come
    later. Then the full §3 battery.
 3. ⏳ F8-A's real `catchUp()` (§2.4) — only on the finished model.
@@ -323,6 +333,13 @@ The FGS keeps the process out of the cached bucket so the phase can
 actually *pass* in the background. It is a display shell, nothing more —
 every decision still lives in the repo/receiver (**single-actor
 discipline**: service renders, never decides).
+
+- **Sibling warning** (the same trap the receiver sitting exposed): the
+  Service is **also an OS-instantiated component** — a class declared
+  in the manifest, not a runtime construct the app creates. The chain:
+  *user act → `startForegroundService()` → the service's
+  `onStartCommand`* — the screen only *starts* the declared class; no
+  code ever "builds" the service object.
 
 - **Manifest:** a `Service` bound to a constant id/notification channel;
   `foregroundServiceType="specialUse"` with `FOREGROUND_SERVICE` +
@@ -368,9 +385,25 @@ exact-alarm special-access onboarding row, folds into 2.7).
 | `di/TimerModule.kt` | Only if an alarm-scheduler *abstraction* is introduced; injecting `@ApplicationContext` directly into the repo needs no DI change |
 | `PomodoroSettingsScreen.kt` | `canScheduleExactAlarms()` false-path users need the special-access onboarding row (folds into 2.7) |
 
-- **One `BroadcastReceiver`** (Hilt-eligible like your other entry
-  points). Its job when fired: `advancePhase()` (or 2.4's catch-up
-  variant), chime/vibrate (2.5), and let the session flow carry the rest.
+**Mental model first** (this sitting taught it the hard way, so it
+lives on the page now): the receiver is **a class the OS instantiates
+from the manifest registration** — never a function the app calls, and
+never a composable. When it fires, the process may hold no screen, no
+VM, no `PomodoroUIState` — the repo singleton is the only truth that
+exists in that moment. The receiver's whole role is a **dumb thunk**:
+it carries no state, decides nothing, and makes exactly one call into
+the repo's gated entry, letting the session flow carry everything
+else.
+
+- **Shape checklist (five lines, nothing more):** a class directly
+  extending `BroadcastReceiver`; `@AndroidEntryPoint` (the same
+  entry-point mechanism as your ViewModel — the woken process gets
+  Hilt's installed graph answering); one `@Inject lateinit var` field
+  of the **`TimerRepository` interface** (contract, never the impl —
+  the binding supplies it); one overridden `onReceive(context,
+  intent)` whose body is a single call to the gated repo entry; zero
+  Compose imports, ever. Catch-up (2.4) plugs into the repo call,
+  chime/vibrate (2.5) into this same receiver moment — later.
 - **`setExactAndAllowWhileIdle`** scheduled at every moment a phase gains
   a future `endTime` (start, resume, skip, auto-start chain) — **gated
   on the pair, never `endTime > 0` alone**: under F2-B a paused session
@@ -388,7 +421,22 @@ exact-alarm special-access onboarding row, folds into 2.7).
   the receiver waking a *frozen* process is normal (the OS spins the
   process up to run it — that's exactly the moment Hilt's singleton
   session is already loaded, no work needed); the receiver must never
-  touch composables — routes through repo singleton only.
+  touch composables — routes through repo singleton only. The skeleton
+  sitting's named catches: **(a)** the composable/anonymous-object
+  inversion — an `object : BroadcastReceiver()` built inside a runtime
+  construct is *not* the manifest-registered receiver; the OS builds
+  its own from the declared class, so *declare the class*. **(b)**
+  `PomodoroUIState` as a parameter — a screen projection has no
+  existence at fire time (no VM, no subscriber passed it in); the
+  receiver holds only what Hilt injected. **(c)** `advancePhase()`
+  stays private — the public gated entry (`completeExpiredPhase()` on
+  the interface, interfaces-first rule) is where **both interval
+  guards** live: `!isRunning → return` and `endTime > now → return`;
+  the receiver stays one line. **(d)** equality guards don't exist:
+  two independent clocks never compare equal by luck — the fired
+  deadline is already a few ms in the past, and inexact-fallback
+  delivery can be minutes late; the premise is the fenced interval
+  `isRunning && endTime <= now`.
 
 ### 2.4 F8-A — fast-forward on wake (LOCKED: decision = A)
 
