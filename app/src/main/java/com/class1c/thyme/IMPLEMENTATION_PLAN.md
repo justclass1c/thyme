@@ -127,6 +127,15 @@ components (activities, services, receivers, channels).
 demolition). Nothing else: the repo's four signatures are unchanged,
 the UI screens don't know the difference, `TimerSettings*` is silent.
 
+| File | Why this file |
+|---|---|
+| `domain/model/TimerSession.kt` | The model is where the contract starts: `endTime` lives on the session, and F2-B's invariants (constant `isRunning` default, sentinel `0`) are statements about the *data class* — nothing below it can state them |
+| `data/repository/InMemoryTimerRepository.kt` | The brain owns `_session` and every writer; the pair discipline, the freeze, the landing ternary — all are **state transitions**, so they live in the one file that owns state |
+| `repository/TimerRepository.kt` | Interfaces-first rule (kept here for history: the four signatures did NOT change — deliberate contract stability) |
+| `PomodoroViewModel.kt` | The combine is the projection layer: real-now remaining while running, snapshot binding while paused, `endTime` pass-through for the display layer |
+| `PomodoroUiState.kt` | The render contract grew the field the display consumes (`endTime`) and lost what the display layer took over (`timeText`/`progress`) |
+| — why *not* the screens | The screens read fields; the 2.1 rewrite changed no field names they use. Where a consumer *did* need to learn something (the frame loop), it lives in `PomodoroProgress.kt` — see item 1 |
+
 **Model contract (F2-B, locked):**
 
 - `endTime: Long = 0L` (epoch ms). `0` = "no appointment booked"
@@ -281,6 +290,14 @@ declaration + type + permissions) + `ui/icons` only if you draw a
 notification icon variant. The repo stays untouched — the service is an
 observer of the session flow, not an editor of it.
 
+| File | Why this file |
+|---|---|
+| `features/pomodoro/PomodoroScreen.kt` | `startForegroundService` is only legal as a **user act** — the control-row click handlers are the single place "user intent" and "OS service start" meet. The repo must stay UI-free, so the seam sits in the screen |
+| **new** `service/TimerForegroundService.kt` | One OS-visible role earns one component: process keeper + notification renderer. Own file/package (`service/`) because it is neither state (`data/`) nor a screen (`features/`) |
+| `AndroidManifest.xml` | OS registration lives nowhere else: the service entry, its `foregroundServiceType`, the two permissions |
+| `ui/icons` (only if a variant is drawn) | The notification's small icon; untouched otherwise |
+| — why *not* the repo/VM | Single-actor discipline: the service only **observes** the session flow and re-renders; no contract grows, no state is written by it |
+
 The FGS keeps the process out of the cached bucket so the phase can
 actually *pass* in the background. It is a display shell, nothing more —
 every decision still lives in the repo/receiver (**single-actor
@@ -321,6 +338,15 @@ introduce an alarm-scheduler abstraction, bind it here) +
 `features/pomodoro/settings/PomodoroSettingsScreen.kt` (the
 exact-alarm special-access onboarding row, folds into 2.7).
 
+| File | Why this file |
+|---|---|
+| **new** `alarm/TimerAlarmReceiver.kt` | The **completion actor**: the only component the OS wakes to deliver a completion. Its own file/package because it is an OS entry point — a receiver cannot be "just a repo method", it needs a woken-process entry |
+| `AndroidManifest.xml` | Two manifest facts make the alarm system find and trust it: the receiver registration and `SCHEDULE_EXACT_ALARM` |
+| `domain/repository/TimerRepository.kt` | Interfaces-first rule: the receiver's one call is a new public promise on the contract |
+| `data/repository/InMemoryTimerRepository.kt` | The gated completion entry + the arm/disarm programming. Arm/disarm must **derive from the pair**, and only the repo owns the pair and its writers — a `syncAlarm()` after each writer keeps schedule-ness a projection of session truth |
+| `di/TimerModule.kt` | Only if an alarm-scheduler *abstraction* is introduced; injecting `@ApplicationContext` directly into the repo needs no DI change |
+| `PomodoroSettingsScreen.kt` | `canScheduleExactAlarms()` false-path users need the special-access onboarding row (folds into 2.7) |
+
 - **One `BroadcastReceiver`** (Hilt-eligible like your other entry
   points). Its job when fired: `advancePhase()` (or 2.4's catch-up
   variant), chime/vibrate (2.5), and let the session flow carry the rest.
@@ -351,6 +377,13 @@ loop beside `advancePhase()`) + `alarm/TimerAlarmReceiver.kt` (hook 1)
 Optionally `features/pomodoro/PomodoroProgress.kt` if you adopt the
 "phases moved forward" caption.
 
+| File | Why this file |
+|---|---|
+| `data/repository/InMemoryTimerRepository.kt` | Catch-up is pure **state math over timestamps**: consume every expired phase via the same landing machinery. Belongs beside `advancePhase()`, which it reuses |
+| `alarm/TimerAlarmReceiver.kt` | Hook 1 — the receiver can be invoked into a process carrying a stale session (missed alarms, frozen survivor) |
+| `features/pomodoro/PomodoroViewModel.kt` | Hook 2 — app re-entry: the VM init is the session's first collector in a warm process |
+| `PomodoroProgress.kt` (optional) | The "phases moved forward while away" caption is presentation, not state |
+
 Where a stale `endTime` exists (frozen-survivor state, alarms missed
 or fully dead device), the contract is:
 
@@ -380,6 +413,12 @@ or fully dead device), the contract is:
 `onCreate`, sound/vibration configured) + optionally
 `res/values/strings.xml` for the completion texts.
 
+| File | Why this file |
+|---|---|
+| `alarm/TimerAlarmReceiver.kt` | Single-actor rule: only the completion actor's moment may chime — the FGS never does, even mid-foreground |
+| `ThymeApplication.kt` | Channels are process-once setup, so they belong at app `onCreate` |
+| `res/values/strings.xml` (optional) | The completion texts, if composed text prefixes the system sound |
+
 - Fires **only** from the receiver (2.3) — the single-actor rule again:
   the FGS never chimes, even mid foreground. In-app screen visuals fall
   out of the session flow naturally (the VM replaces UI on the session
@@ -395,6 +434,12 @@ seam) + `AndroidManifest.xml` (permission declaration) +
 `features/pomodoro/settings/PomodoroSettingsScreen.kt` (the
 grant-state row + app-info deep link for permanent denial).
 
+| File | Why this file |
+|---|---|
+| `features/pomodoro/PomodoroScreen.kt` | The request happens at the **first Start tap** — the strongest UX link (the toggle now advertises a notification), and it's a user moment like the FGS start |
+| `AndroidManifest.xml` | The `POST_NOTIFICATIONS` declaration (13+ runtime permission) |
+| `PomodoroSettingsScreen.kt` | Permanent-denial surface: the settings row + app-info deep link are secondary paths when the dialog is exhausted |
+
 - Request at the natural moment == first Start tap (strongest UX link:
   the toggle now advertises a notification). Handle permanent denial
   (row-off → 🚫, setting row offering the app-info deep link).
@@ -407,6 +452,12 @@ grant-state row + app-info deep link for permanent denial).
 two rows + fallback copy) + `AndroidManifest.xml`
 (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) +
 `res/values/strings.xml` (the guidance copy).
+
+| File | Why this file |
+|---|---|
+| `PomodoroSettingsScreen.kt` | The two onboarding rows mirror **live** system state (exemption granted? autostart enabled?) — a settings surface, not a one-shot dialog |
+| `AndroidManifest.xml` | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, the only permission needed for the exemption request |
+| `res/values/strings.xml` | The guidance copy (HyperOS-specific instructions can't auto-translate) |
 
 - Battery-optimization exemption request (package-claimed) with a
   settings row mirroring the state; fallback copy if the system dialog is
