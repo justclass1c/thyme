@@ -1,7 +1,6 @@
 package com.class1c.thyme.features.pomodoro
 
 import com.class1c.thyme.domain.model.TimerPhase
-import com.class1c.thyme.features.pomodoro.settings.PomodoroSettingsEvent
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -17,12 +16,9 @@ data class PomodoroUIState(
     val longBreaksEnabled: Boolean = true,
     val showRounds: Boolean = longBreaksEnabled,
     val endTime: Long = 0L
-) {
-    val timeText: String get() = formatTime(remainingSeconds)
-    val progress: Float get() = remainingSeconds / totalSeconds.toFloat()
-}
+)
 
-private fun formatTime(seconds: Int): String {
+fun formatTime(seconds: Int): String {
     val hours = seconds / 3600
     val minutes = (seconds / 60) - (hours * 60)
     val seconds = seconds % 60

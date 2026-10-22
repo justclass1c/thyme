@@ -27,7 +27,6 @@ class PomodoroViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository
 ): ViewModel() {
     private val _clockText = MutableStateFlow(LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault())))
-    private val _tick = MutableStateFlow<Long>(System.currentTimeMillis())
 
     val uiState: StateFlow<PomodoroUIState> = combine(timerRepository.session, _clockText, settingsRepository.settings) { session, clock, settings ->
         PomodoroUIState(
@@ -51,7 +50,6 @@ class PomodoroViewModel @Inject constructor(
         viewModelScope.launch {
             while (isActive) {
                 _clockText.value = LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault()))
-                _tick.value = System.currentTimeMillis()
                 delay(1_000L.milliseconds)
             }
         }
