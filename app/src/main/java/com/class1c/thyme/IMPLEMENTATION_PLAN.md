@@ -105,6 +105,12 @@ components (activities, services, receivers, channels).
 | `theme/{Theme,Color,Type}.kt` | ThymeTheme (Type.kt has `poppinsFamily`) |
 | `icons/*.kt` | hand-drawn `ImageVector`s (Refresh, PlayArrow, Pause, FastForward, Settings) |
 
+**OS-component packages — Phase F additions (new directories, siblings of `data/` and `features/`)**
+| File | Purpose |
+|---|---|
+| `alarm/TimerAlarmReceiver.kt` | 2.3's receiver — **the completion actor.** Its own *top-level* package (`class1c/thyme/alarm/`), intentionally not inside `data/` or `features/`: it is neither state nor screen — it's an OS-woken entry point (`BroadcastReceiver`) that the manifest registers by name, which then routes into the repo contract |
+| `service/TimerForegroundService.kt` | 2.2's foreground service — same reasoning: an OS-woken rendering shell. Sibling package `class1c/thyme/service/`, registered in the manifest, observer-only of the session flow |
+
 **App-level — OS registration**
 | File | Purpose |
 |---|---|
