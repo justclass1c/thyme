@@ -1,5 +1,6 @@
 package com.class1c.thyme.domain.repository
 
+import android.content.Intent
 import com.class1c.thyme.domain.model.TimerSession
 import kotlinx.coroutines.flow.StateFlow
 
@@ -10,4 +11,5 @@ interface TimerRepository {
     fun pause()
     fun reset()
     fun skip()
+    fun completeExpiredPhase()
 }

@@ -48,6 +48,7 @@ class PomodoroViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            timerRepository.completeExpiredPhase()
             while (isActive) {
                 _clockText.value = LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault()))
                 delay(1_000L.milliseconds)

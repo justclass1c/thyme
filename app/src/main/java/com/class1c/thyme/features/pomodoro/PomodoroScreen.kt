@@ -1,5 +1,6 @@
 package com.class1c.thyme.features.pomodoro
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,9 +19,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.class1c.thyme.domain.model.TimerPhase
+import com.class1c.thyme.services.TimerForegroundService
 import com.class1c.thyme.ui.icons.fast_forward
 import com.class1c.thyme.ui.icons.pause
 import com.class1c.thyme.ui.icons.play_arrow
@@ -30,6 +33,8 @@ import com.class1c.thyme.ui.theme.poppinsFamily
 
 @Composable
 fun PomodoroScreen(state: PomodoroUIState, onEvent: (PomodoroEvent) -> Unit, onNavigateToPomodoroSettings: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,
@@ -78,8 +83,13 @@ fun PomodoroScreen(state: PomodoroUIState, onEvent: (PomodoroEvent) -> Unit, onN
             IconButton(
                 modifier = Modifier.width(100.dp).height(45.dp),
                 onClick = {
-                    if (state.isRunning) onEvent(PomodoroEvent.Pause)
-                    else onEvent(PomodoroEvent.Start)
+                    if (state.isRunning) {
+                        onEvent(PomodoroEvent.Pause)
+                        context.stopService(Intent(context, TimerForegroundService::class.java))
+                    } else {
+                        onEvent(PomodoroEvent.Start)
+                        context.startForegroundService(Intent(context, TimerForegroundService::class.java))
+                    }
                 },
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primary

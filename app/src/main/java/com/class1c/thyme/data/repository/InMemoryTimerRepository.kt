@@ -1,11 +1,24 @@
 package com.class1c.thyme.data.repository
 
+import android.annotation.SuppressLint
+import android.app.AlarmManager
+import android.app.AlarmManager.RTC_WAKEUP
+import android.app.PendingIntent
+import android.app.PendingIntent.FLAG_IMMUTABLE
+import android.app.PendingIntent.FLAG_UPDATE_CURRENT
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.Build.VERSION.SDK_INT
+import androidx.annotation.RequiresApi
+import com.class1c.thyme.alarm.TimerAlarmReceiver
 import com.class1c.thyme.di.ApplicationScope
 import com.class1c.thyme.domain.model.TimerPhase
 import com.class1c.thyme.domain.model.TimerSession
 import com.class1c.thyme.domain.model.TimerSettings
 import com.class1c.thyme.domain.repository.SettingsRepository
 import com.class1c.thyme.domain.repository.TimerRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,8 +30,10 @@ import javax.inject.Singleton
 import kotlin.math.ceil
 
 @Singleton
+@RequiresApi(Build.VERSION_CODES.S)
 class InMemoryTimerRepository @Inject constructor (
     @ApplicationScope private val scope: CoroutineScope,
+    @ApplicationContext private val appContext: Context,
     private val settingsRepository: SettingsRepository
 ): TimerRepository {
     private val _session = MutableStateFlow(TimerSession())
@@ -73,6 +88,7 @@ class InMemoryTimerRepository @Inject constructor (
 
         val nextTotal = durationFor(nextPhase)
         _session.update { it.copy(completedRounds = rounds, isRunning = settings.autoStartNextPhase, timerPhase = nextPhase, totalSeconds = nextTotal, remainingSeconds = nextTotal, endTime = if (settings.autoStartNextPhase) System.currentTimeMillis() + nextTotal * 1000 else 0) }
+        syncAlarm()
     }
 
     override fun start() {
@@ -80,18 +96,44 @@ class InMemoryTimerRepository @Inject constructor (
         if(_session.value.remainingSeconds <= 0) return
         val endTime = System.currentTimeMillis() + _session.value.remainingSeconds * 1000
         _session.update { it.copy(endTime = endTime, isRunning = true) }
+        syncAlarm()
     }
 
     override fun pause() {
         if (!_session.value.isRunning) return // safeguard
         _session.update { it.copy(remainingSeconds = ceil((it.endTime - System.currentTimeMillis()).toDouble() / 1000).coerceAtLeast(0.0).toInt(), isRunning = false) }
+        syncAlarm()
     }
 
     override fun reset() {
         _session.update { it.copy(remainingSeconds = it.totalSeconds, isRunning = false, endTime = 0) }
+        syncAlarm()
     }
 
     override fun skip() {
         advancePhase()
+    }
+
+    override fun completeExpiredPhase() {
+        if (_session.value.isRunning && _session.value.endTime <= System.currentTimeMillis()) { // if timer is running and has ended...
+            catchUp()
+        } else return
+    }
+
+    private fun syncAlarm() { // TODO: understand this better
+        val sharedPendingIntent = PendingIntent.getBroadcast(appContext, 0, Intent(appContext, TimerAlarmReceiver::class.java), FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE)
+        val alarmManager = appContext.getSystemService(AlarmManager::class.java)
+
+        if (!_session.value.isRunning) alarmManager.cancel(sharedPendingIntent)
+        else {
+            if (SDK_INT >= 31 && !alarmManager.canScheduleExactAlarms()) alarmManager.setAndAllowWhileIdle( RTC_WAKEUP, _session.value.endTime, sharedPendingIntent )
+            else alarmManager.setExactAndAllowWhileIdle(RTC_WAKEUP, _session.value.endTime, sharedPendingIntent)
+        }
+    }
+
+    private fun catchUp() {
+        while (_session.value.isRunning && (_session.value.endTime <= System.currentTimeMillis())) {
+            advancePhase()
+        }
     }
 }
