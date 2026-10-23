@@ -109,7 +109,7 @@ components (activities, services, receivers, channels).
 | File | Purpose |
 |---|---|
 | `MainActivity.kt` | the single Activity host + global padding insets |
-| `ThymeApplication.kt` | `@HiltAndroidApp`; **F2.4/2.5's notification channels get created here** |
+| `ThymeApplication.kt` | `@HiltAndroidApp`; **F2.5's chime channel gets created here** (2.2's countdown channel landed service-local — see §2.2 status) |
 | `navigation/{AppNavHost,Route,NavigationBar}.kt` | type-safe nav wiring |
 | `AndroidManifest.xml` | every OS-visible component declaration: F2.2's service + permissions, 2.3's receiver, F6/F7 permissions |
 | `res/xml/*`, `res/values/*` | backup rules, strings/colors/themes |
@@ -121,7 +121,7 @@ components (activities, services, receivers, channels).
 |---|---|---|
 | **2.1 — timestamp model** | `domain/model/TimerSession.kt` · `data/repository/InMemoryTimerRepository.kt` · `features/pomodoro/PomodoroViewModel.kt` · `features/pomodoro/PomodoroUiState.kt`; display tail: `features/pomodoro/PomodoroProgress.kt` | ✅ landed |
 | **2.1 item 2 — receiver skeleton** | **new** `alarm/TimerAlarmReceiver.kt` · `app/src/main/AndroidManifest.xml` · `domain/repository/TimerRepository.kt` · `data/repository/InMemoryTimerRepository.kt` | ✅ landed 2026-10-23 (battery green) — status in §2.1 item 2 |
-| **2.2 — F3 foreground service** | **new** `service/TimerForegroundService.kt` · `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · (optional) `ui/icons/*` | ⏳ |
+| **2.2 — F3 foreground service** | **new** `services/TimerForegroundService.kt` (user's folder name — recorded deviation from `service/`) · `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · (optional) `ui/icons/*` | ✅ landed 2026-10-23 (battery green) — status in §2.2 |
 | **2.3 — F4 alarms (full)** | `alarm/TimerAlarmReceiver.kt` (grows) · `AndroidManifest.xml` · `data/repository/InMemoryTimerRepository.kt` · `di/TimerModule.kt` (only if an alarm-scheduler abstraction is introduced) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
 | **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ⏳ |
 | **2.5 — F5 chime** | `alarm/TimerAlarmReceiver.kt` · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ⏳ |
@@ -339,8 +339,8 @@ to a display staffer.
 ### 2.2 F3 — foreground service + the countdown notification
 
 **Files:** `features/pomodoro/PomodoroScreen.kt` (tap-start/stop seam) +
-**new** `service/TimerForegroundService.kt` (next to `data/`, package
-`com.class1c.thyme.service`) + `AndroidManifest.xml` (service
+**new** `services/TimerForegroundService.kt` (package
+`com.class1c.thyme.services`) + `AndroidManifest.xml` (service
 declaration + type + permissions) + `ui/icons` only if you draw a
 notification icon variant. The repo stays untouched — the service is an
 observer of the session flow, not an editor of it.
@@ -348,7 +348,7 @@ observer of the session flow, not an editor of it.
 | File | Why this file |
 |---|---|
 | `features/pomodoro/PomodoroScreen.kt` | `startForegroundService` is only legal as a **user act** — the control-row click handlers are the single place "user intent" and "OS service start" meet. The repo must stay UI-free, so the seam sits in the screen |
-| **new** `service/TimerForegroundService.kt` | One OS-visible role earns one component: process keeper + notification renderer. Own file/package (`service/`) because it is neither state (`data/`) nor a screen (`features/`) |
+| **new** `services/TimerForegroundService.kt` | One OS-visible role earns one component: process keeper + notification renderer. Own file/package (`services/`) because it is neither state (`data/`) nor a screen (`features/`) |
 | `AndroidManifest.xml` | OS registration lives nowhere else: the service entry, its `foregroundServiceType`, the two permissions |
 | `ui/icons` (only if a variant is drawn) | The notification's small icon; untouched otherwise |
 | — why *not* the repo/VM | Single-actor discipline: the service only **observes** the session flow and re-renders; no contract grows, no state is written by it |
@@ -389,6 +389,56 @@ discipline**: service renders, never decides).
 - **Trap:** service updates for auto-start must be driven from *state
   observation* (it can collect the session flow), not from new intents —
   one source, re-render on change.
+
+**Status (2026-10-23 — landed & battery green):** all pieces in place.
+
+- **Shape as landed:** `TimerForegroundService` (`@AndroidEntryPoint`,
+  injected `TimerRepository` interface); a service-life scope declared
+  as a plain `val` property (`SupervisorJob() + Dispatchers.Default`,
+  the §DI precedent, cancelled in `onDestroy` — declaration-time init
+  is safe here precisely because it references nothing injected);
+  `onCreate` = `super` FIRST (Hilt injection lands inside that call —
+  launching the collector before it risks reading an un-injected
+  `lateinit`), then the channel, then **one** `scope.launch` collector
+  over the session flow (never-returning `collect` hosted by the
+  scope: the observer's life ends with the service's by cancellation;
+  GlobalScope and the injected `@ApplicationScope` were both rejected
+  — the former un-cancellable, the latter outliving restart cycles).
+- **Render per emission:** private `render(session)` builds a fresh
+  notification under the constant id `1` — any build-once field dies
+  at construction (`lateinit` before injection) or goes stale at the
+  first phase roll (notifications freeze at `build()`). The trio =
+  `setWhen(endTime)` + `setUsesChronometer(true)` +
+  `setChronometerCountDown(true)`; `setOnlyAlertOnce(true)`.
+- **Verbs in their homes:** `startForegroundService(Intent)` exists
+  only in the control-row click lambdas (user act; after routing the
+  repo event); `startForeground(1, render)` is the mandatory *entry
+  ritual* in `onStartCommand` (unconditional, before any state check —
+  the 5-second law), returning `START_NOT_STICKY`; the collector
+  running-branch does `notify(1, render(s))` (updates go to the
+  NotificationManager under the same id), the else-branch owns every
+  stop (`stopForeground(STOP_FOREGROUND_REMOVE)` + `stopSelf()`).
+  One-way flow: the screen only ever **starts** — stopping is the
+  service's own observation decision.
+- **Battery, five boxes green:** start tap shows a countdown that
+  descends in sync with the ring; pause → notification vanishes
+  (REMOVE semantics); skip/auto-chain re-renders with no new
+  foreground start; swipe-from-recents leaves it gone for good
+  (`START_NOT_STICKY`); screen-off countdown keeps descending — the
+  F3 payoff itself.
+- **Review catches (kept as lessons):** the construction-time
+  `val notification = ...` (a renamed, disguised repeat of the same
+  bug — field initializers run before injection); `onStartCommand`
+  calling itself instead of returning `NOT_STICKY`;
+  early-return-before-promote (violates the 5-second law);
+  super-ordering (§ above); collector calling `startForeground`
+  instead of `notify`.
+- **Deviations recorded:** folder `services/` (doc said `service/`);
+  the countdown channel created service-locally in `onCreate`
+  (self-contained idempotent choice; `ThymeApplication` remains the
+  2.5 chime-channel home); platform `Notification.Builder` flavor
+  (`NotificationCompat` optional, not adopted); `IMPORTANCE_LOW` +
+  title-as-phase-label named as the follow-up polish row.
 
 ### 2.3 F4 — exact alarms (The completion actor)
 
@@ -602,7 +652,7 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 |---|----------|--------|
 | F1 | Sequencing | Phase E closed; 2.1 timestamp model before all F UI/service work; **demolition lands alone, the receiver skeleton (§2.3 first bolt) follows as its own sitting — interim `00:00`-hang accepted (2026-10-21)** |
 | F2 | Timekeeping | **Locked 2026-10-21 — model variant B**: stored `isRunning` (constant `false` default only, never a computed default); pair discipline at every writer (`isRunning = true` ⇔ fresh future `endTime`, same atomic copy); `endTime` = "appointment as booked," kept as stale fiction across pause; freeze in `pause()`; sentinel `0` = no-appointment (pristine / auto-start-OFF landing); ticker + job/cancel machinery deleted. Variant A (derive the flag) stays a one-file future swap while the `session.isRunning` access-path rule holds. **Display cadence (locked 2026-10-21, landed 2026-10-22 — user-built frame-clock loop):** vsync-sampled display over the exposed `endTime` (sub-frame accurate; zero work unrendered; `_tick` heartbeat retired; paused = snapshot binding; no fixed-interval pulse — its error is bounded by its period; wall-second alignment and deadline-anchored pulses both rejected). Landed shape + lessons in §2.1 item 1 |
-| F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end |
+| F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end. **Landed 2026-10-23, battery green** (shape record in §2.2's status) |
 | F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor. **Skeleton landed 2026-10-23 with green battery** (details in §2.1 item 2's status) |
 | F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst |
 | F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash |
