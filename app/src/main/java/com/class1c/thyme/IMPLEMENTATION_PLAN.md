@@ -120,7 +120,7 @@ components (activities, services, receivers, channels).
 | Task | Files | State |
 |---|---|---|
 | **2.1 — timestamp model** | `domain/model/TimerSession.kt` · `data/repository/InMemoryTimerRepository.kt` · `features/pomodoro/PomodoroViewModel.kt` · `features/pomodoro/PomodoroUiState.kt`; display tail: `features/pomodoro/PomodoroProgress.kt` | ✅ landed |
-| **2.1 item 2 — receiver skeleton** | **new** `alarm/TimerAlarmReceiver.kt` · `app/src/main/AndroidManifest.xml` · `domain/repository/TimerRepository.kt` · `data/repository/InMemoryTimerRepository.kt` | ⏳ next sitting |
+| **2.1 item 2 — receiver skeleton** | **new** `alarm/TimerAlarmReceiver.kt` · `app/src/main/AndroidManifest.xml` · `domain/repository/TimerRepository.kt` · `data/repository/InMemoryTimerRepository.kt` | ✅ landed 2026-10-23 (battery green) — status in §2.1 item 2 |
 | **2.2 — F3 foreground service** | **new** `service/TimerForegroundService.kt` · `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · (optional) `ui/icons/*` | ⏳ |
 | **2.3 — F4 alarms (full)** | `alarm/TimerAlarmReceiver.kt` (grows) · `AndroidManifest.xml` · `data/repository/InMemoryTimerRepository.kt` · `di/TimerModule.kt` (only if an alarm-scheduler abstraction is introduced) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
 | **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ⏳ |
@@ -305,6 +305,30 @@ to a display staffer.
    decides — §2.3's mental model governs.
    Chime (2.5), exact-alarm permission fallback, onboarding rows come
    later. Then the full §3 battery.
+
+   **Status (2026-10-23 — landed & battery green):** all four steps
+   wired: interface entry `completeExpiredPhase()` with both interval
+   guards; `syncAlarm()` called after **all four writers** (cancel
+   if paused, else the SDK≥31+`!canScheduleExactAlarms()` → inexact /
+   else exact decision tree); the receiver as §2.3's five-line thunk;
+   manifest receiver + permission. Battery record (POCO 2602BPC18G,
+   Android 16, HyperOS 3.0), via `dumpsys alarm`/appops receipts:
+   **box 4 ran itself out of order** — the fresh install holds
+   default-deny special access, so the fallback arm was exercised
+   first: `window=+44s997ms`, no `exactAllowReason`, completion
+   arrived ~45 s late and landed fine, zero crashes; the alarm
+   history also showed each pause/reset write cancelling and resume
+   re-arming (box 2's machinery, visible live). After toggling
+   special access (HyperOS hides the row — found via Settings search
+   "Alarms & reminders", or `REQUEST_SCHEDULE_EXACT_ALARM`): grant
+   `allow`, and the arm's fingerprint flipped to
+   `window=0 exactAllowReason=permission flags=0x5` — box 1 on-time
+   rolls, chained deadlines advancing (box 3's shape). Lesson logged
+   for 2.6/2.7: the toggle genuinely needs guiding users to; the app
+   can open the screen itself (`ACTION_REQUEST_SCHEDULE_EXACT_ALARM`),
+   shell cannot pass a package as caller. The in-source `TODO:
+   understand this better` over `syncAlarm()` may quiet once §2.3's
+   full sitting runs.
 3. ⏳ F8-A's real `catchUp()` (§2.4) — only on the finished model.
    Scope honesty: catch-up covers frozen-survivor wakes only; a
    hard-killed process cold-starts pristine (deferred persistence,
@@ -564,8 +588,11 @@ Background/scene battery tests (screen OFF, 10-min cycles):
       still guards (no crash); posts no-ops.
 - [ ] Battery-optimization exempt request + MIUI autostart rows work and
       reflect actual system state.
-- [ ] `canScheduleExactAlarms()` false → fallback path still advances
-      (slightly late is OK, no crash).
+- [x] `canScheduleExactAlarms()` false → fallback path still advances
+      (slightly late is OK, no crash). *Verified early, during the
+      skeleton sitting (2026-10-23): fallback arm carries a ~45 s
+      delivery window, completions land, no crash — receipts in
+      §2.1 item 2.*
 
 ---
 
@@ -576,7 +603,7 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 | F1 | Sequencing | Phase E closed; 2.1 timestamp model before all F UI/service work; **demolition lands alone, the receiver skeleton (§2.3 first bolt) follows as its own sitting — interim `00:00`-hang accepted (2026-10-21)** |
 | F2 | Timekeeping | **Locked 2026-10-21 — model variant B**: stored `isRunning` (constant `false` default only, never a computed default); pair discipline at every writer (`isRunning = true` ⇔ fresh future `endTime`, same atomic copy); `endTime` = "appointment as booked," kept as stale fiction across pause; freeze in `pause()`; sentinel `0` = no-appointment (pristine / auto-start-OFF landing); ticker + job/cancel machinery deleted. Variant A (derive the flag) stays a one-file future swap while the `session.isRunning` access-path rule holds. **Display cadence (locked 2026-10-21, landed 2026-10-22 — user-built frame-clock loop):** vsync-sampled display over the exposed `endTime` (sub-frame accurate; zero work unrendered; `_tick` heartbeat retired; paused = snapshot binding; no fixed-interval pulse — its error is bounded by its period; wall-second alignment and deadline-anchored pulses both rejected). Landed shape + lessons in §2.1 item 1 |
 | F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end |
-| F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor |
+| F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor. **Skeleton landed 2026-10-23 with green battery** (details in §2.1 item 2's status) |
 | F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst |
 | F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash |
 | F7 | HyperOS onboarding | battery-exemption dialog + MIUI autostart guidance rows |
