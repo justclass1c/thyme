@@ -26,7 +26,7 @@ class TimerForegroundService : Service() {
     @Inject lateinit var timerRepository: TimerRepository
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    var currentPhase = TimerPhase.FOCUS // a design choice: null makes the first notif fire a double.
+    var currentPhase: TimerPhase? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -37,18 +37,22 @@ class TimerForegroundService : Service() {
 
         scope.launch { // create notification async, push that process to background thread
             timerRepository.session.collect { s ->
+                if (currentPhase != null && s.timerPhase != currentPhase) {
+                    timerManager.notify(2, renderCompletionNotif(s))
+                }
+
+                currentPhase = s.timerPhase
+
                 if (s.isRunning) timerManager.notify(1, renderTimerNotif(s)) // .notify() creates and sends notification
                 else {
                     stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    stopSelf() // calls onDestroy()
                 }
-
-                if (timerRepository.session.value.timerPhase != currentPhase) timerManager.notify(2, renderCompletionNotif(timerRepository.session.value))
             }
         }
     }
 
-    private fun renderTimerNotif(session: TimerSession): Notification {
+    private fun renderTimerNotif(session: TimerSession): Notification { // TODO: make this persistent
         val notification = Notification.Builder(this, TIMER_CHANNEL_ID)
             .setContentTitle("Timer has started")
             .setContentText(
@@ -63,31 +67,27 @@ class TimerForegroundService : Service() {
             .setUsesChronometer(true) // set as chronometer, makes static timestamp an actual ticking clock
             .setChronometerCountDown(true) // set chronometer to countdown
             .setOnlyAlertOnce(true) // only notify once with the same notifID
+            .setAutoCancel(true)
             .build()
 
         return notification
     }
 
     private fun renderCompletionNotif(session: TimerSession): Notification {
+        val phaseText = when (session.timerPhase) {
+            TimerPhase.FOCUS -> "Current Phase: Focus"
+            TimerPhase.SHORT_BREAK -> "Current Phase: Short Break."
+            else -> "Current Phase: Long Break"
+        }
+
         val notification = Notification.Builder(this, PHASES_CHANNEL_ID)
             .setContentTitle("Phase has changed.")
-            .setContentText(getPhaseText(session.timerPhase))
+            .setContentText(phaseText)
             .setSmallIcon(R.drawable.ic_launcher_background) // change later
+            .setAutoCancel(true)
             .build()
 
         return notification
-    }
-
-    private fun getPhaseText(phase: TimerPhase): String {
-        currentPhase = phase
-        val phaseText = when (phase) {
-            TimerPhase.FOCUS -> "Time to work."
-            TimerPhase.SHORT_BREAK -> "Take a break."
-            else -> "Time to rest."
-        }
-
-
-        return phaseText
     }
 
     override fun onBind(intent: Intent?): IBinder? {
