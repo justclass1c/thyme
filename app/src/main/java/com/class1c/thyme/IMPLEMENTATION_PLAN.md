@@ -123,8 +123,8 @@ components (activities, services, receivers, channels).
 | **2.1 item 2 — receiver skeleton** | **new** `alarm/TimerAlarmReceiver.kt` · `app/src/main/AndroidManifest.xml` · `domain/repository/TimerRepository.kt` · `data/repository/InMemoryTimerRepository.kt` | ✅ landed 2026-10-23 (battery green) — status in §2.1 item 2 |
 | **2.2 — F3 foreground service** | **new** `services/TimerForegroundService.kt` (user's folder name — recorded deviation from `service/`) · `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · (optional) `ui/icons/*` | ✅ landed 2026-10-23 (battery green) — status in §2.2 |
 | **2.3 — F4 alarms (full)** | `alarm/TimerAlarmReceiver.kt` (grows) · `AndroidManifest.xml` · `data/repository/InMemoryTimerRepository.kt` · `di/TimerModule.kt` (only if an alarm-scheduler abstraction is introduced) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
-| **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ⏳ |
-| **2.5 — F5 chime** | `alarm/TimerAlarmReceiver.kt` · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ⏳ |
+| **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ✅ landed 2026-10-24 (battery green) — status in §2.4 |
+| **2.5 — F5 chime** | (final shape) `alarm/TimerAlarmReceiver.kt` · (landed experiment: `services/TimerForegroundService.kt` bell card) · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ✅ landed 2026-10-24 (battery green, **service-side experiment** — receiver handover pending) — status in §2.5 |
 | **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
 | **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `app/src/main/res/values/strings.xml` | ⏳ |
 
@@ -329,7 +329,8 @@ to a display staffer.
    shell cannot pass a package as caller. The in-source `TODO:
    understand this better` over `syncAlarm()` may quiet once §2.3's
    full sitting runs.
-3. ⏳ F8-A's real `catchUp()` (§2.4) — only on the finished model.
+3. ✅ **F8-A's real `catchUp()` (§2.4) — landed 2026-10-24, battery
+   green** (record in §2.4).
    Scope honesty: catch-up covers frozen-survivor wakes only; a
    hard-killed process cold-starts pristine (deferred persistence,
    §5).
@@ -549,6 +550,45 @@ or fully dead device), the contract is:
 - Optional screen caption ("phases moved forward while away") — taste,
   not required; record either way.
 
+**Status (2026-10-24 — landed & battery green on the test device):**
+
+- **Shape as landed:** a private `catchUp()` beside `advancePhase()`
+  — a `while` loop over the fenced premise, **recomputed fresh on
+  every pass** (`isRunning && endTime <= System.currentTimeMillis()`,
+  a new clock read each time, never a carried local), each pass
+  applying one completion by delegating to the **same
+  `advancePhase()` machinery**. No separate "should it continue?"
+  logic exists: the loop's exit is the landing ternary itself —
+  auto-start ON arms a future `endTime` (wake mid-cycle, running),
+  auto-start OFF writes `endTime = 0` + paused-full, and either kills
+  the premise.
+- **Why fresh-condition (the loop lesson):** evaluating the premise
+  once into a local before the loop would mean looping on the opening
+  instant's answer while `advancePhase()` rewrites `endTime` under it
+  — every later pass tests stale fiction. Deadline-based regimes
+  recompute their deadline at every decision point; the loop head is
+  a decision point.
+- **Single public gate:** `completeExpiredPhase()` remains the only
+  public entry on the interface — it re-checks both interval guards
+  at the call moment, then invokes `catchUp()` (stays private). Both
+  hooks are single calls into it: hook 1 (receiver) — **unchanged**,
+  still the one-line thunk, it already pointed at the gated entry;
+  hook 2 (VM init) — a first-statement call inside the existing
+  `viewModelScope.launch`, so the init block reads
+  catch-up-once + clock-loop-only. The two hooks co-exist without
+  double-advance for free: the second call's premise is already false.
+- **One-chime-per-catch-up — honest structural note:** a burst of N
+  completions produces one session emission per pass (each
+  `advancePhase()` writes a fresh copy). StateFlow conflation usually
+  collapses the burst to at most one *observed* emission, but the
+  "exactly once" guarantee is **not structural** — it is an outcome
+  of emission mechanics. The structural guarantee arrives with 2.5's
+  receiver handover (one call → one answer → one bell). Noted, not
+  chased this phase.
+- **Scope honored, unchanged:** a hard-killed process cold-starts
+  pristine — no stale timestamp to replay, so no-op; the deferred
+  persistence item remains the owner of that gap.
+
 ### 2.5 F5 — chime + vibrate
 
 **Files:** `alarm/TimerAlarmReceiver.kt` (the only chime site) +
@@ -569,6 +609,102 @@ or fully dead device), the contract is:
 - Modern channel with sound + `NotificationChannel.enableVibration`;
   system default alarm sound first (`RingtoneManager` type alarm) —
   composing a custom sound is a later taste.
+
+**Status (2026-10-24 — landed & battery green, as a service-side
+experiment):**
+
+Landed shape **deviates from the table above**: the chime did not go
+into the receiver — it lives in the foreground service's collector.
+Recorded as a deliberate experiment with a scheduled migration; the
+table's final shape stands. The service version's known gaps: it goes
+silent when the process is frozen or the service already stopped —
+exactly the hard moments the alarm exists for — and its
+chime-per-catch-up is conflation luck, not structure (§2.4's note).
+Neither gap is this-phase chase material; both buy their fixes on the
+receiver handover below.
+
+- **Two channels, one constants home:** `ThymeApplication`'s
+  companion owns `PHASES_CHANNEL_ID` (`"ringtone"`,
+  `IMPORTANCE_DEFAULT` — sound + vibration, no heads-up banner) and
+  `TIMER_CHANNEL_ID` (`"timer"` — the countdown card's silent-ish
+  home). One manager (the phone-wide notification console) is fetched
+  **locally by each component** that posts — nothing shares the
+  object, only the name constants travel between files. Any component
+  may post onto any channel; the pairing that must match is the id
+  string at registration == the id string at post.
+- **Channel settings are read at registration:** the phases channel's
+  vibration (`enableVibration(true)`) and sound (`setSound(
+  RingtoneManager.getDefaultUri(TYPE_RINGTONE),
+  AUDIO_ATTRIBUTES_DEFAULT)`) are set **before**
+  `createNotificationChannel` — edits to the object after
+  registration do nothing. Recorded deviation: the doc-planned system
+  **alarm** sound landed as the system **ringtone** sound (deliberate
+  choice this sitting); TODO carried: let the user choose
+  alarm-vs-ringtone. Practical debug rule learned: channel settings
+  belong to the **first** registration, so fixing sound/vibration in
+  code means **bumping the channel id** — otherwise the system keeps
+  the original registration.
+- **Trigger = state comparison, never a clock check.** Two rejected
+  attempts, kept as lessons: (1) `endTime <= now` in the collector
+  — at a real completion the collector's next message already shows
+  the **new** phase with a **future** deadline, so the past-deadline
+  instant happens inside the repo between emissions; the check either
+  never fires or fires at an unrelated mid-run moment. (2)
+  text-vs-text — only works while each phase's label happens to be a
+  distinct string (two breaks sharing one line would kill it), makes
+  presentation drive machinery, and smuggled a mutation into a
+  supposedly pure mapping. Landed detector: a nullable
+  `currentPhase` memory in the service; ring iff
+  `currentPhase != null && s.timerPhase != currentPhase` (null guard
+  ordered first — its second half alone is true at the first message
+  and rings a phantom bell at every service start). Renderers are
+  now pure label maps; the collector owns every write to the memory.
+- **The memory-write placement bug (this sitting's slogan bug):** the
+  assignment `currentPhase = s.timerPhase` first lived **inside the
+  ring-`if`** — a guard that needs a non-null memory to open, fed by
+  the assignment buried behind it → the memory stayed null forever
+  and **no bell ever rang**. Fix: the assignment runs on **every
+  message** as its own statement after the ring-`if`; the first
+  message records silently (that silence is the same null guard's
+  anti-phantom job).
+- **Ordering rule — ring before stop:** the ring step runs
+  unconditionally **before** the running/else split. The auto-start-
+  OFF landing is `isRunning = false`; rung first, its bell posts and
+  only afterwards does the else-branch remove the countdown card
+  (`stopForeground(STOP_FOREGROUND_REMOVE)` + `stopSelf()`) — the
+  bell card (id 2) is an independent post and survives the removal.
+  Supporting rule kept: the service reads **state, never settings**
+  — auto-start's outcome is already baked into `isRunning` by the
+  repo's landing; the service never re-asks.
+- **Cards:** countdown id 1 keeps the chronometer trio +
+  `setOnlyAlertOnce`; bell id 2 (on `PHASES_CHANNEL_ID`) is a plain
+  card, no chronometer — title "Phase has changed.", the new phase's
+  label as text. Both renderers take the collector's own `s` — the
+  habit of reaching into `timerRepository.session.value` inside a
+  renderer was chased out of both builders.
+
+Battery (POCO 2602BPC18G, Android 16, HyperOS 3.0;
+`POST_NOTIFICATIONS` verified `granted=true` on device): a live
+transition rings exactly once with the new phase's text; pause → no
+bell, card vanishes; resume → no bell, card returns correctly
+anchored; reset → silent; service/timer start → silent (no phantom
+from the null-memory guard); auto-start-OFF landing → bell rings,
+then the countdown card disappears.
+
+**Open items (recorded; 2.5 not fully closed until these clear):**
+1. **`android.permission.VIBRATE` is not in the manifest yet** — the
+   channel is enabled-for-vibration and the code order is right, but
+   the manifest never claims the permission, so vibration actually
+   firing is unconfirmed (sound is). One manifest line + a device
+   buzz check; if the channel's registration needs a re-do, remember
+   the bump-the-id rule above.
+2. **Receiver handover** — the doc's final shape: the bell moves to
+   the receiver, gated on the repo entry answering "something
+   actually finished" (stale alarms stay silent); one call → one
+   answer → one bell is also the structural once-per-catch-up
+   guarantee.
+3. **Alarm-vs-ringtone user choice** (TODO already sits on the sound
+   line in `ThymeApplication`).
 
 ### 2.6 F6 — `POST_NOTIFICATIONS` runtime permission (13+)
 
@@ -654,10 +790,10 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 | F2 | Timekeeping | **Locked 2026-10-21 — model variant B**: stored `isRunning` (constant `false` default only, never a computed default); pair discipline at every writer (`isRunning = true` ⇔ fresh future `endTime`, same atomic copy); `endTime` = "appointment as booked," kept as stale fiction across pause; freeze in `pause()`; sentinel `0` = no-appointment (pristine / auto-start-OFF landing); ticker + job/cancel machinery deleted. Variant A (derive the flag) stays a one-file future swap while the `session.isRunning` access-path rule holds. **Display cadence (locked 2026-10-21, landed 2026-10-22 — user-built frame-clock loop):** vsync-sampled display over the exposed `endTime` (sub-frame accurate; zero work unrendered; `_tick` heartbeat retired; paused = snapshot binding; no fixed-interval pulse — its error is bounded by its period; wall-second alignment and deadline-anchored pulses both rejected). Landed shape + lessons in §2.1 item 1 |
 | F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end. **Landed 2026-10-23, battery green** (shape record in §2.2's status) |
 | F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor. **Skeleton landed 2026-10-23 with green battery** (details in §2.1 item 2's status) |
-| F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst |
+| F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there) |
 | F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash |
 | F7 | HyperOS onboarding | battery-exemption dialog + MIUI autostart guidance rows |
-| F8 | Overdue policy | **A — fast-forward.** Trust timestamps: consume every missed phase in order until a future `endTime` (or paused-full landing); single chime; hook points = alarm receiver + app re-entry |
+| F8 | Overdue policy | **A — fast-forward.** Trust timestamps: consume every missed phase in order until a future `endTime` (or paused-full landing); single chime; hook points = alarm receiver + app re-entry. **Landed 2026-10-24** (private catch-up loop, single gated public entry, both hooks wired — battery green, full record in §2.4's status) |
 | F9 | HyperIsland | Deferred — research task in its own later phase |
 
 ---
