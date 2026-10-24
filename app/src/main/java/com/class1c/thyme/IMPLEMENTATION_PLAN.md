@@ -692,19 +692,52 @@ from the null-memory guard); auto-start-OFF landing → bell rings,
 then the countdown card disappears.
 
 **Open items (recorded; 2.5 not fully closed until these clear):**
-1. **`android.permission.VIBRATE` is not in the manifest yet** — the
-   channel is enabled-for-vibration and the code order is right, but
-   the manifest never claims the permission, so vibration actually
-   firing is unconfirmed (sound is). One manifest line + a device
-   buzz check; if the channel's registration needs a re-do, remember
-   the bump-the-id rule above.
-2. **Receiver handover** — the doc's final shape: the bell moves to
+1. **Receiver handover** — the doc's final shape: the bell moves to
    the receiver, gated on the repo entry answering "something
    actually finished" (stale alarms stay silent); one call → one
    answer → one bell is also the structural once-per-catch-up
    guarantee.
-3. **Alarm-vs-ringtone user choice** (TODO already sits on the sound
-   line in `ThymeApplication`).
+2. **Sound user choice** (TODO sits on the sound line in
+   `ThymeApplication`).
+
+**Addendum (2026-10-25 — the popup sitting; every open verifier
+above is now resolved or reworded):**
+
+- **Heads-up popup landed on the bell card:** the phases channel's
+  importance raised to `IMPORTANCE_HIGH`. Plainly: the importance
+  scale is numbered in the phone's own receipts — **3 = default**
+  (shade + sound, no popup), **4 = high** (adds a "banner that
+  slides down over whatever is on screen, then retreats"). The bell
+  card now pops; the countdown card stays quiet as designed.
+- **The id-versioning rule justified itself twice in one sitting.**
+  (1) The first attempt raised the importance *without bumping the
+  id*: `dumpsys notification` proved the phone still enforcing the
+  Monday-era registration (`mImportance=3`) — declaring a category
+  whose id already exists is a no-op; only a **fresh id** petitions
+  fresh settings. Restated for every future channel change: code
+  fixes to a channel's settings always mean a new id. (2) The
+  countdown channel had meanwhile been promoted to popup level **on
+  the phone** (its receipt: `mOriginalImp=3` beside
+  `mImportance=4` + the user-locked flag) — and a setting a human
+  changed on the phone outranks code forever. The code-side escape
+  was again the fresh id (`"Timer"`), re-petitioning the code's own
+  default-importance settings. Final landed ids: `"Ringtone3"`
+  (bell, HIGH) / `"Timer"` (countdown, default).
+- **Sound settled at the notification chime.** A trial used the
+  `TYPE_RINGTONE` constant and played the **incoming-call melody**
+  — the constants select different system sounds:
+  `TYPE_RINGTONE` = the phone-call ring, `TYPE_NOTIFICATION` = the
+  short shade chime, `TYPE_ALARM` = the alarm tone (this block's
+  original bullet). Landed: `TYPE_NOTIFICATION`; the TODO reworded
+  to "let the user choose notification or ringtone".
+- **`android.permission.VIBRATE` added to the manifest** — the last
+  open verifier cleared; sitting reported green.
+- **Ghost channels remain registered on the device** (the retired
+  ids `"ringtone"`, `"Ringtone"`, and whatever preceded) — nothing
+  posts to them anymore, but they still show in the phone's
+  settings list. Candidates for the one-line
+  `deleteNotificationChannel` sweep; cosmetic, recorded so the
+  list of dead categories can't start a future debugging session.
 
 ### 2.6 F6 — `POST_NOTIFICATIONS` runtime permission (13+)
 
@@ -790,7 +823,7 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 | F2 | Timekeeping | **Locked 2026-10-21 — model variant B**: stored `isRunning` (constant `false` default only, never a computed default); pair discipline at every writer (`isRunning = true` ⇔ fresh future `endTime`, same atomic copy); `endTime` = "appointment as booked," kept as stale fiction across pause; freeze in `pause()`; sentinel `0` = no-appointment (pristine / auto-start-OFF landing); ticker + job/cancel machinery deleted. Variant A (derive the flag) stays a one-file future swap while the `session.isRunning` access-path rule holds. **Display cadence (locked 2026-10-21, landed 2026-10-22 — user-built frame-clock loop):** vsync-sampled display over the exposed `endTime` (sub-frame accurate; zero work unrendered; `_tick` heartbeat retired; paused = snapshot binding; no fixed-interval pulse — its error is bounded by its period; wall-second alignment and deadline-anchored pulses both rejected). Landed shape + lessons in §2.1 item 1 |
 | F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end. **Landed 2026-10-23, battery green** (shape record in §2.2's status) |
 | F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor. **Skeleton landed 2026-10-23 with green battery** (details in §2.1 item 2's status) |
-| F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there) |
+| F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there). **Addendum 2026-10-25:** heads-up popup on the bell card (channel importance HIGH), sound = the notification chime (ringtone melody rejected by ear), and VIBRATE manifest-cleared — full record in the status's addendum |
 | F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash |
 | F7 | HyperOS onboarding | battery-exemption dialog + MIUI autostart guidance rows |
 | F8 | Overdue policy | **A — fast-forward.** Trust timestamps: consume every missed phase in order until a future `endTime` (or paused-full landing); single chime; hook points = alarm receiver + app re-entry. **Landed 2026-10-24** (private catch-up loop, single gated public entry, both hooks wired — battery green, full record in §2.4's status) |
