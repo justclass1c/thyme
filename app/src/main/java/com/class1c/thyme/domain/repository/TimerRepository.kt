@@ -11,5 +11,5 @@ interface TimerRepository {
     fun pause()
     fun reset()
     fun skip()
-    fun completeExpiredPhase()
+    fun completeExpiredPhase(): Boolean
 }

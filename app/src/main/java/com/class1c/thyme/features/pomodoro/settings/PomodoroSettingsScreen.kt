@@ -1,5 +1,10 @@
 package com.class1c.thyme.features.pomodoro.settings
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -25,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonDefaults.buttonColors
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -43,16 +49,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.core.content.ContextCompat
 import com.class1c.thyme.features.pomodoro.settings.popups.SaveChangesPopup
 import com.class1c.thyme.ui.theme.poppinsFamily
 
 @Composable
 fun PomodoroSettingsScreen(state: PomodoroSettingsUIState, onEvent: (PomodoroSettingsEvent) -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) // required to access system notification settings
+        .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) } // addFlag needed to start the settings screen outside the app
+
     BackHandler() { onEvent(PomodoroSettingsEvent.RequestBack) }
 
     if (state.showDiscardDialog) {
@@ -245,6 +259,34 @@ fun PomodoroSettingsScreen(state: PomodoroSettingsUIState, onEvent: (PomodoroSet
                         colors = SwitchDefaults.colors(),
                     )
                 }
+
+
+                if (!hasPermission) {
+                    SettingRow("Enable Notifications?") {
+                        Button(
+                            modifier = Modifier.width(100.dp).height(45.dp),
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    // check if permission for notification is enabled
+                                    val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+                                    if (!hasPermission) { // if permission not enabled
+                                        context.startActivity(intent)
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                        ) {
+                            Text(
+                                text = "Yes",
+                                fontFamily = poppinsFamily,
+                                color = MaterialTheme.colorScheme.background
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -314,7 +356,7 @@ private fun SettingRow(label: String, content: @Composable RowScope.() -> Unit) 
 @Composable
 private fun SettingButtons(label: String, onClick: () -> Unit, containerColor: Color, textColor: Color) {
     Button(
-        colors = ButtonDefaults.buttonColors(
+        colors = buttonColors(
             containerColor = containerColor
         ),
         onClick = onClick,

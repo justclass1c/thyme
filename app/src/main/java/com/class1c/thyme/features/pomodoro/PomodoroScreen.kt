@@ -1,6 +1,11 @@
 package com.class1c.thyme.features.pomodoro
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +27,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.class1c.thyme.domain.model.TimerPhase
 import com.class1c.thyme.services.TimerForegroundService
 import com.class1c.thyme.ui.icons.fast_forward
@@ -34,6 +41,7 @@ import com.class1c.thyme.ui.theme.poppinsFamily
 @Composable
 fun PomodoroScreen(state: PomodoroUIState, onEvent: (PomodoroEvent) -> Unit, onNavigateToPomodoroSettings: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestPermission()) {}
 
     Column(
         modifier = modifier.fillMaxSize(),
@@ -87,6 +95,15 @@ fun PomodoroScreen(state: PomodoroUIState, onEvent: (PomodoroEvent) -> Unit, onN
                         onEvent(PomodoroEvent.Pause)
                         context.stopService(Intent(context, TimerForegroundService::class.java))
                     } else {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            // check if permission for notification is enabled
+                            val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+                            if (!hasPermission) { // if permission not enabled
+                                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) // launch dialog for this permission
+                            }
+                        }
+
                         onEvent(PomodoroEvent.Start)
                         context.startForegroundService(Intent(context, TimerForegroundService::class.java))
                     }

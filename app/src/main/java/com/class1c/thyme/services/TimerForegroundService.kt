@@ -3,11 +3,13 @@ package com.class1c.thyme.services
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.PendingIntent.FLAG_IMMUTABLE
+import android.app.PendingIntent.FLAG_UPDATE_CURRENT
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import com.class1c.thyme.R
-import com.class1c.thyme.ThymeApplication.Companion.PHASES_CHANNEL_ID
 import com.class1c.thyme.ThymeApplication.Companion.TIMER_CHANNEL_ID
 import com.class1c.thyme.ThymeApplication.Companion.TIMER_CHANNEL_NAME
 import com.class1c.thyme.domain.model.TimerPhase
@@ -24,9 +26,9 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class TimerForegroundService : Service() {
     @Inject lateinit var timerRepository: TimerRepository
+
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    var currentPhase: TimerPhase? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -37,12 +39,6 @@ class TimerForegroundService : Service() {
 
         scope.launch { // create notification async, push that process to background thread
             timerRepository.session.collect { s ->
-                if (currentPhase != null && s.timerPhase != currentPhase) {
-                    timerManager.notify(2, renderCompletionNotif(s))
-                }
-
-                currentPhase = s.timerPhase
-
                 if (s.isRunning) timerManager.notify(1, renderTimerNotif(s)) // .notify() creates and sends notification
                 else {
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -53,6 +49,9 @@ class TimerForegroundService : Service() {
     }
 
     private fun renderTimerNotif(session: TimerSession): Notification { // TODO: make this persistent
+        val intent = applicationContext.packageManager.getLaunchIntentForPackage(applicationContext.packageName)
+        val pendingIntent: PendingIntent? = PendingIntent.getActivity(applicationContext, 1, intent, FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT)
+
         val notification = Notification.Builder(this, TIMER_CHANNEL_ID)
             .setContentTitle("Timer has started")
             .setContentText(
@@ -67,28 +66,12 @@ class TimerForegroundService : Service() {
             .setUsesChronometer(true) // set as chronometer, makes static timestamp an actual ticking clock
             .setChronometerCountDown(true) // set chronometer to countdown
             .setOnlyAlertOnce(true) // only notify once with the same notifID
-            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
             .build()
 
         return notification
     }
 
-    private fun renderCompletionNotif(session: TimerSession): Notification {
-        val phaseText = when (session.timerPhase) {
-            TimerPhase.FOCUS -> "Current Phase: Focus"
-            TimerPhase.SHORT_BREAK -> "Current Phase: Short Break."
-            else -> "Current Phase: Long Break"
-        }
-
-        val notification = Notification.Builder(this, PHASES_CHANNEL_ID)
-            .setContentTitle("Phase has changed.")
-            .setContentText(phaseText)
-            .setSmallIcon(R.drawable.ic_launcher_background) // change later
-            .setAutoCancel(true)
-            .build()
-
-        return notification
-    }
 
     override fun onBind(intent: Intent?): IBinder? {
         return null

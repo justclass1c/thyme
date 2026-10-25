@@ -114,10 +114,11 @@ class InMemoryTimerRepository @Inject constructor (
         advancePhase()
     }
 
-    override fun completeExpiredPhase() {
+    override fun completeExpiredPhase(): Boolean {
         if (_session.value.isRunning && _session.value.endTime <= System.currentTimeMillis()) { // if timer is running and has ended...
             catchUp()
-        } else return
+            return true
+        } else return false
     }
 
     private fun syncAlarm() { // TODO: understand this better
