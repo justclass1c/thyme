@@ -125,7 +125,7 @@ components (activities, services, receivers, channels).
 | **2.3 — F4 alarms (full)** | `alarm/TimerAlarmReceiver.kt` (grows) · `AndroidManifest.xml` · `data/repository/InMemoryTimerRepository.kt` · `di/TimerModule.kt` (only if an alarm-scheduler abstraction is introduced) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
 | **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ✅ landed 2026-10-24 (battery green) — status in §2.4 |
 | **2.5 — F5 chime** | (final shape) `alarm/TimerAlarmReceiver.kt` · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ✅ landed 2026-10-24 (battery green); **final shape reached 2026-10-25 — bell lives in the receiver behind the Boolean gate** — status + addenda 1–3 in §2.5 |
-| **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
+| **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ **request seam landed 2026-10-25** (fresh-install prompt verified; manifest pre-paid) — settings-row mirror + revoked-side battery remaining; status in §2.6 |
 | **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `app/src/main/res/values/strings.xml` | ⏳ |
 
 Package placement: **new packages sit beside the existing ones at the
@@ -868,6 +868,46 @@ grant-state row + app-info deep link for permanent denial).
 - All FGS/notification posting defends on the grant; denial degrades to
   zero notifications, timer still runs.
 
+**Status (2026-10-25 — request seam landed & fresh-install prompt
+verified; sitting in progress):**
+
+- **Half pre-paid:** the manifest claim was already declared during
+  the earlier notification work, and the test device's grant was
+  already user-fixed from a prior sitting — so the fresh path was
+  unreachable on that phone. The unlock: **an uninstall/reinstall
+  resets the permission ledger**, and the dialog exists again.
+  Recorded as the standard test-door for this whole block.
+- **Seam shape as landed:** the permission launcher
+  (`rememberLauncherForActivityResult` + the request-permission
+  contract) lives at screen level; the **Start tap** asks the phone
+  live (`checkSelfPermission`, behind the SDK ≥ 33 guard — minSdk 28
+  needs it) and launches the dialog only when ungranted; the event
+  flow (repo start + foreground-service start) runs regardless of
+  the verdict — deny-then-degrade is structurally true before any
+  code says so.
+- **The first attempt deleted, and the design delta it left:** a
+  plain `var firstTap` local was the original once-only guard — a
+  per-recomposition ghost (the third species of "state lives where
+  the ownership lives": a Composable's locals re-run from the top
+  every frame, so it could not remember across taps). Deleted rather
+  than replaced with remembered state: the landed design **re-asks
+  on every Start tap while ungranted**, and bounds the nag with the
+  *system's own* patience — after two denials the system stops
+  showing the dialog and `launch()` returns "denied" silently. Every
+  re-launch also coincides with a fresh user-intent tap, which is
+  the legitimate re-ask moment. Recorded deviation from "ask exactly
+  once," accepted consciously; the revoked-side battery is what
+  certifies the bound holds.
+- **Callback is an empty stub, deliberately:** nothing must react to
+  verdicts yet — the courtesy "the bell stays silent until enabled"
+  text is a taste row that would live exactly here.
+- **Remaining for 2.6:** the settings-screen **grant-state mirror**
+  (a live-checked row: off → visible + tap opens Thyme's system
+  notification-settings location — a deep link to the user's own
+  app, always legal; no screen, no storage) and the **revoked-side
+  battery** (deny twice → no dialog, no nag, no crash; one full
+  card-less cycle).
+
 ### 2.7 F7 — HyperOS onboarding
 
 **Files:** `features/pomodoro/settings/PomodoroSettingsScreen.kt` (the
@@ -934,7 +974,7 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 | F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end. **Landed 2026-10-23, battery green** (shape record in §2.2's status) |
 | F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor. **Skeleton landed 2026-10-23 with green battery** (details in §2.1 item 2's status) |
 | F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there). **Addendum 2026-10-25:** heads-up popup on the bell card (channel importance HIGH), sound = the notification chime (ringtone melody rejected by ear), and VIBRATE manifest-cleared — full record in the status's addendum. **Addendum 2 (same day):** tap-to-open envelopes on both cards (launch intent fetched via the package manager — the manifest stays the entry-screen's single source); the declaration-timing crash rule recorded in final form. **Addendum 3 (2026-10-25, final shape):** the bell moved into `TimerAlarmReceiver` gated on `completeExpiredPhase(): Boolean` — stale alarms silent, one-per-catch-up structural, manual skip silent by design; stateless-receiver and receiver-is-not-a-Context lessons verified on device |
-| F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash |
+| F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash. **Request seam landed 2026-10-25** (fresh-install prompt verified; manifest pre-paid; per-tap re-ask while ungranted, nag bounded by the system's own two-denial patience — status + remaining rows in §2.6) |
 | F7 | HyperOS onboarding | battery-exemption dialog + MIUI autostart guidance rows |
 | F8 | Overdue policy | **A — fast-forward.** Trust timestamps: consume every missed phase in order until a future `endTime` (or paused-full landing); single chime; hook points = alarm receiver + app re-entry. **Landed 2026-10-24** (private catch-up loop, single gated public entry, both hooks wired — battery green, full record in §2.4's status) |
 | F9 | HyperIsland | Deferred — research task in its own later phase |
