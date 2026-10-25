@@ -125,7 +125,7 @@ components (activities, services, receivers, channels).
 | **2.3 — F4 alarms (full)** | `alarm/TimerAlarmReceiver.kt` (grows) · `AndroidManifest.xml` · `data/repository/InMemoryTimerRepository.kt` · `di/TimerModule.kt` (only if an alarm-scheduler abstraction is introduced) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
 | **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ✅ landed 2026-10-24 (battery green) — status in §2.4 |
 | **2.5 — F5 chime** | (final shape) `alarm/TimerAlarmReceiver.kt` · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ✅ landed 2026-10-24 (battery green); **final shape reached 2026-10-25 — bell lives in the receiver behind the Boolean gate** — status + addenda 1–3 in §2.5 |
-| **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ **request seam landed 2026-10-25** (fresh-install prompt verified; manifest pre-paid) — settings-row mirror + revoked-side battery remaining; status in §2.6 |
+| **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` (seam) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` (mirror) · `AndroidManifest.xml` (pre-paid) | ⏳ **seam + settings-row mirror landed 2026-10-25** (fresh-install prompt verified; deep-link action on the row) — the two batteries remaining; status in §2.6 |
 | **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `app/src/main/res/values/strings.xml` | ⏳ |
 
 Package placement: **new packages sit beside the existing ones at the
@@ -907,6 +907,57 @@ verified; sitting in progress):**
   app, always legal; no screen, no storage) and the **revoked-side
   battery** (deny twice → no dialog, no nag, no crash; one full
   card-less cycle).
+
+**Sitting 2 (2026-10-25, later — the grant-state mirror landed;
+one battery left):**
+
+- **The mirror landed:** a settings row rendered only under the live
+  `checkSelfPermission` read (recomputed at composition — no
+  storage, the phone owns the grant ledger); hidden when granted.
+  No new screen, no DataStore key — the row is a reader with a map,
+  never a toggle: the app cannot write permission state, and no API
+  exists to let it.
+- **The row's action is the deep link, and the dialog-replay draft
+  died in review:** the first draft replayed the permission dialog
+  — a dead end in *exactly the state the row exists for* (the
+  system stops showing the dialog after two denials; replaying
+  `launch()` there is a silent no-op). Landed design: the row opens
+  **the system's notification-settings page for Thyme**
+  (`ACTION_APP_NOTIFICATION_SETTINGS`) — the switch that never
+  exhausts. Lesson recorded: the exhaust-recovery surface must act
+  with tools that cannot exhaust.
+- **Deep-link facts:** opening one's **own** app's settings page
+  needs no permission (self-navigation is always legal);
+  `FLAG_ACTIVITY_NEW_TASK` kept as belt-over-suspenders from an
+  activity context; the old `SDK_INT >= 33` guard around the
+  navigation is now unnecessary (the action is API-21-era, far
+  under minSdk 28) — recorded as harmless leftover, not to be read
+  as "the deep link is API-33-gated."
+- **The sitting's lesson — the same toast, twice, by two different
+  envelope mistakes.** The user's symptom ("the app wasn't found in
+  the list of installed apps") was produced by **two distinct bugs
+  in sequence**: (1) the `EXTRA_APP_PACKAGE` extra absent entirely —
+  the intent left with no address (the page had no which-app
+  answer); (2) after adding one, the **key and value traded
+  places** — `putExtra(payload, label)` — so the page searched for
+  a package literally named `android.provider.extra.APP_PACKAGE`.
+  Bare the contract plainly: `putExtra` reads **label-then-payload**
+  — the system-defined name in the key slot, `context.packageName`
+  in the value slot. Sister entries in the compute-deliver family:
+  the ringtone sound computed and never attached, the tap-envelope
+  built but not bound. Improvisation during debugging (swapping the
+  action to plain `ACTION_SETTINGS` — an extra-less action, so it
+  "worked") is recorded as a diagnostic move, not a fix: it lands
+  on the Settings app's *home*, leaving the user to find the app —
+  a working-looking wrong address.
+- **Remaining to close 2.6 (both need the denied state first —
+  reinstall or `pm revoke`):** (a) the **two-denial battery** at the
+  seam: deny the dialog twice, start again → no dialog appears, no
+  crash, and one full card-less cycle proves degrade-not-crash;
+  (b) the **row round-trip**: denied → row visible, tap → Thyme's
+  notification page, flip, return → row hides at the next
+  recomposition; end-to-end bell on a completed phase after the
+  grant returns.
 
 ### 2.7 F7 — HyperOS onboarding
 
