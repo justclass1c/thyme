@@ -739,6 +739,56 @@ above is now resolved or reworded):**
   `deleteNotificationChannel` sweep; cosmetic, recorded so the
   list of dead categories can't start a future debugging session.
 
+**Addendum 2 (2026-10-25, later — the tap-to-open sitting):**
+
+- **Both cards now open the app on tap.** Each renderer builds the
+  open-app envelope **at render time** (a legal moment, per the
+  timing rule below): the app's own launch intent — **fetched**
+  from the package manager (`getLaunchIntentForPackage`), not
+  hand-constructed against `MainActivity::class.java`, so the
+  manifest's launcher registration stays the single source of the
+  entry-screen fact — wrapped by `PendingIntent.getActivity`
+  (`FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT`; request code 1 shared
+  by both cards, legitimate because the destination is identical).
+  Terminology pair taught this sitting: a plain `Intent` is the
+  message you mail yourself now; a `PendingIntent` is a pre-signed
+  envelope handed to the phone, which may mail it later with your
+  signature. Bell card `setAutoCancel(true)` (tap = open + clear);
+  the countdown card's `autoCancel` is a dead flag — a foreground
+  card is system-pinned while its service lives, un-swipeable and
+  un-tappable-away — noted inert, not removed.
+- **The crash lesson — third meeting of the declaration-time
+  family, so the rule is now final-form:** property initializers
+  run inside the constructor, **before the framework attaches the
+  context and before Hilt injects**. Any declaration-level `val`
+  reading `applicationContext`, building Android objects, or
+  touching injected fields crashes the construction ("Unable to
+  create service": null-resources NPE, or
+  `UninitializedPropertyAccessException`) — this sitting produced
+  device receipts of all three shapes in one day. **Class-level
+  `val`s may reference only things constructible from nothing
+  (the service's scope); everything else is built inside
+  `onCreate` after `super`, or at render time.** Its sibling catch:
+  `MainActivity()` hand-built at declaration level — the OS is the
+  only legitimate constructor of an activity, and the husk was
+  only being used as a class label, which never needs an instance.
+  Deleted.
+- **Review catches (principles over accidents):** the fetch's
+  package argument appeared as the literal string
+  `"com.class1c.thyme"` — a second copy of a build-config fact;
+  the fix pattern is the context property
+  (`applicationContext.packageName`), and one renderer still
+  carried the literal at record time. On the shelf: both
+  renderers duplicate the same ten-line envelope — the
+  label-map-shaped candidate for one small private helper.
+- **New API taught: the package manager** — the app-registry clerk
+  (`context.packageManager`, distinct from `getSystemService`'s
+  system-services desk): queries installed apps including one's
+  own; `getLaunchIntentForPackage` returns the launcher-shaped
+  intent or null (unreachable for an app with a launcher entry);
+  `applicationContext.packageName` is the self-identity, never
+  typed by hand.
+
 ### 2.6 F6 — `POST_NOTIFICATIONS` runtime permission (13+)
 
 **Files:** `features/pomodoro/PomodoroScreen.kt` (first-Start request
@@ -823,7 +873,7 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 | F2 | Timekeeping | **Locked 2026-10-21 — model variant B**: stored `isRunning` (constant `false` default only, never a computed default); pair discipline at every writer (`isRunning = true` ⇔ fresh future `endTime`, same atomic copy); `endTime` = "appointment as booked," kept as stale fiction across pause; freeze in `pause()`; sentinel `0` = no-appointment (pristine / auto-start-OFF landing); ticker + job/cancel machinery deleted. Variant A (derive the flag) stays a one-file future swap while the `session.isRunning` access-path rule holds. **Display cadence (locked 2026-10-21, landed 2026-10-22 — user-built frame-clock loop):** vsync-sampled display over the exposed `endTime` (sub-frame accurate; zero work unrendered; `_tick` heartbeat retired; paused = snapshot binding; no fixed-interval pulse — its error is bounded by its period; wall-second alignment and deadline-anchored pulses both rejected). Landed shape + lessons in §2.1 item 1 |
 | F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end. **Landed 2026-10-23, battery green** (shape record in §2.2's status) |
 | F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor. **Skeleton landed 2026-10-23 with green battery** (details in §2.1 item 2's status) |
-| F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there). **Addendum 2026-10-25:** heads-up popup on the bell card (channel importance HIGH), sound = the notification chime (ringtone melody rejected by ear), and VIBRATE manifest-cleared — full record in the status's addendum |
+| F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there). **Addendum 2026-10-25:** heads-up popup on the bell card (channel importance HIGH), sound = the notification chime (ringtone melody rejected by ear), and VIBRATE manifest-cleared — full record in the status's addendum. **Addendum 2 (same day):** tap-to-open envelopes on both cards (launch intent fetched via the package manager — the manifest stays the entry-screen's single source); the declaration-timing crash rule recorded in final form |
 | F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash |
 | F7 | HyperOS onboarding | battery-exemption dialog + MIUI autostart guidance rows |
 | F8 | Overdue policy | **A — fast-forward.** Trust timestamps: consume every missed phase in order until a future `endTime` (or paused-full landing); single chime; hook points = alarm receiver + app re-entry. **Landed 2026-10-24** (private catch-up loop, single gated public entry, both hooks wired — battery green, full record in §2.4's status) |
