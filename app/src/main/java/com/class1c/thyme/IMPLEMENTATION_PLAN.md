@@ -126,7 +126,7 @@ components (activities, services, receivers, channels).
 | **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ✅ landed 2026-10-24 (battery green) — status in §2.4 |
 | **2.5 — F5 chime** | (final shape) `alarm/TimerAlarmReceiver.kt` · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ✅ landed 2026-10-24 (battery green); **final shape reached 2026-10-25 — bell lives in the receiver behind the Boolean gate** — status + addenda 1–3 in §2.5 |
 | **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` (seam) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` (mirror) · `AndroidManifest.xml` (pre-paid) | ✅ **landed 2026-10-25** — seam + settings-row mirror + batteries green (fresh-install prompt, denial patience, grant round-trip) — status in §2.6 |
-| **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `app/src/main/res/values/strings.xml` | ⏳ |
+| **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `app/src/main/res/values/strings.xml` | ⏳ **battery-exemption row landed 2026-10-25** (request dialog + live mirror; Play-lint accepted) — autostart row, exact-alarm row, fallback copy remaining; status in §2.7 |
 
 Package placement: **new packages sit beside the existing ones at the
 `com.class1c.thyme` level** — `alarm/` and `service/` are OS entry
@@ -976,6 +976,65 @@ two rows + fallback copy) + `AndroidManifest.xml`
   unavailable on some ROM.
 - MIUI autostart guidance row: attempt the known autostart intent,
   `ActivityNotFound`-caught → instructional copy fallback.
+
+**Status (2026-10-25 — the battery-exemption row landed, battery
+green):**
+
+- **Manifest claim** — `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` added,
+  correct at the first attempt: permissions are declared facts, not
+  behavior, so there was nothing to get wrong once the name matched.
+- **The mirror is the exemption, not the request permission.** First
+  draft read `checkSelfPermission(REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)`
+  — but that permission is **install-time ("normal")**: granted with
+  no human, so it can't track what the user *does*, and it answers
+  "may I ask?" rather than "am I exempt?" — a mirror one layer above
+  the truth. Landed: the **PowerManager** console
+  (`getSystemService(PowerManager)`) and
+  `isIgnoringBatteryOptimizations(packageName)` — live, the same
+  read-the-owner pattern as the notifications mirror and
+  `canScheduleExactAlarms()`.
+- **The action is the direct confirm dialog, after two wrong-doors.**
+  Draft history, all real: (1) `ACTION_IGNORE_BATTERY_OPTIMIZATION_
+  SETTINGS` (plural, the *global list*) with the per-app extra
+  attached — the list door **reads no recipient shelf**, so the
+  extra was ignored; symptom "opens nothing / no error". (2) After
+  learning the **data shelf** (`setData` takes a parsed **Uri**, not
+  a string — `("package:" + packageName).toUri()` is the idiom; the
+  compiler's refusal was a guard, not an obstacle), the **plural
+  constant stayed** — right letter, wrong door, still silent. (3)
+  The one-constant fix: `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+  + the package-scheme data URI → the system's own allow/reject
+  dialog for exactly this app. Recorded as a general law: **the
+  action decides which shelf the receiving screen reads** — a
+  letter on an unread shelf is indistinguishable from no letter.
+- **The intent's three shelves, tabulated for the house file:**
+  *action* (the door — constructor/`setAction`), *data* (the
+  addressed thing — `setData`/parsed Uri; read by the battery
+  dialog's door), *extras* (`putExtra` labeled pockets; read by the
+  notification-settings door). Not interchangeable; each door's
+  contract names its shelf.
+- **Play-policy lint warning: acknowledged and kept.** Lint flags
+  the permission + intent as violating Google Play's acceptable-use
+  rules for this special access. Reasoning recorded: the app is
+  local/sideloaded (the policy governs *Play distribution*); a
+  pomodoro timer sits squarely in the policy's own acceptable-use
+  family (must survive Doze, like alarm clocks); the **direct
+  request dialog was chosen over the list route deliberately** —
+  it's the more honest ask even though it's the linted one. If Play
+  ever happens: acceptable-use justification at review, not
+  removal.
+- **Battery: user-verified green** this sitting — dialog appears
+  from the non-exempt state, exemption lands, row hides per the
+  mirror. (Shell receipt available anytime: `dumpsys deviceidle
+  whitelist` should list the package.)
+- **Remaining in this task:** the **autostart guidance row**
+  (attempt-the-intent, caught-fallback copy — HyperOS has no stable
+  public entry), the **exact-alarm guiding row** (mirror
+  `canScheduleExactAlarms()`, open `ACTION_REQUEST_SCHEDULE_EXACT_
+  ALARM` — the self-openable toggle HyperOS buries), and the
+  **fallback copy** (`strings.xml`, shared by the fallback paths).
+- **Micro-sweep on the shelf:** with `toUri()` doing the parsing,
+  `import android.net.Uri` became unused — retire on next touch.
 
 ---
 
