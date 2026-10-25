@@ -124,7 +124,7 @@ components (activities, services, receivers, channels).
 | **2.2 — F3 foreground service** | **new** `services/TimerForegroundService.kt` (user's folder name — recorded deviation from `service/`) · `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · (optional) `ui/icons/*` | ✅ landed 2026-10-23 (battery green) — status in §2.2 |
 | **2.3 — F4 alarms (full)** | `alarm/TimerAlarmReceiver.kt` (grows) · `AndroidManifest.xml` · `data/repository/InMemoryTimerRepository.kt` · `di/TimerModule.kt` (only if an alarm-scheduler abstraction is introduced) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
 | **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ✅ landed 2026-10-24 (battery green) — status in §2.4 |
-| **2.5 — F5 chime** | (final shape) `alarm/TimerAlarmReceiver.kt` · (landed experiment: `services/TimerForegroundService.kt` bell card) · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ✅ landed 2026-10-24 (battery green, **service-side experiment** — receiver handover pending) — status in §2.5 |
+| **2.5 — F5 chime** | (final shape) `alarm/TimerAlarmReceiver.kt` · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ✅ landed 2026-10-24 (battery green); **final shape reached 2026-10-25 — bell lives in the receiver behind the Boolean gate** — status + addenda 1–3 in §2.5 |
 | **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` · `AndroidManifest.xml` · `features/pomodoro/settings/PomodoroSettingsScreen.kt` | ⏳ |
 | **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `app/src/main/res/values/strings.xml` | ⏳ |
 
@@ -692,13 +692,10 @@ from the null-memory guard); auto-start-OFF landing → bell rings,
 then the countdown card disappears.
 
 **Open items (recorded; 2.5 not fully closed until these clear):**
-1. **Receiver handover** — the doc's final shape: the bell moves to
-   the receiver, gated on the repo entry answering "something
-   actually finished" (stale alarms stay silent); one call → one
-   answer → one bell is also the structural once-per-catch-up
-   guarantee.
+1. ~~Receiver handover~~ ✅ **closed 2026-10-25 (addendum 3): the
+   bell's final shape — receiver-side, gated on the Boolean.**
 2. **Sound user choice** (TODO sits on the sound line in
-   `ThymeApplication`).
+   `ThymeApplication`) — the only 2.5 item left.
 
 **Addendum (2026-10-25 — the popup sitting; every open verifier
 above is now resolved or reworded):**
@@ -789,6 +786,69 @@ above is now resolved or reworded):**
   `applicationContext.packageName` is the self-identity, never
   typed by hand.
 
+**Addendum 3 (2026-10-25, evening — the receiver handover; 2.5's
+final shape):**
+
+- The open item is closed: the bell moved from the service's
+  watcher to **`TimerAlarmReceiver`, gated on a Boolean answer**.
+  Contracts-first ran in the order it preaches — interface
+  (`completeExpiredPhase(): Boolean`) → implementation → receiver →
+  service shrunk — and the two-week collection of bell bugs left
+  with the machinery it lived in (the slogan placement bug, the
+  phantom-start bell, the null-memory trap: gone **by deletion**,
+  not by fix).
+- **The Boolean's semantics, recorded precisely:** the answer is
+  "the completion premise held at the moment of the call" — which
+  guarantees `catchUp()` consumed at least one phase (its loop
+  requires that same premise). The no-op guard paths (paused /
+  future deadline / not running) answer false; the receiver rings
+  only on true — stale or early alarm wakes stay silent with zero
+  memory needed.
+- **Receiver landed shape:** `onReceive` unwraps the passed-in
+  context first (`null → return`), fetches the notification console
+  from it, and the whole body is *one call → one conditional → post
+  card 2 on the phases channel*. The card builder moved over from
+  the service, now taking the message's own session **and the
+  passed context**; the tap-to-open envelope rebuilds with
+  `context.packageName` (the drift-free form). The dumb-thunk
+  survives: the receiver decides nothing about timer state; the
+  VM's re-entry call keeps ignoring the Boolean — only the receiver
+  consumes the answer (the single-actor rule, honored at the call
+  sites).
+- **Service shrunk back to the one-job shape:** the watcher renders
+  the countdown card while running, removes + stops otherwise — no
+  ring block, no phase memory, no null guard, no completion
+  builder.
+- **Verified lesson 1 — the stateless receiver is structural, not
+  stylistic:** the first attempt resurrected the service's
+  remember-and-compare detector (a `currentPhase` field) inside the
+  receiver, and silently never rang: the OS constructs a **fresh
+  receiver object per delivery** and discards it after the call —
+  a field cannot survive to become a memory, so `currentPhase` was
+  null at every wake and its guard could never open. The Boolean
+  made the memory unnecessary; the "receiver carries no state" rule
+  was proven on device, not just read from the page.
+- **Verified lesson 2 — a receiver is not a Context:** the "how do
+  I get `applicationContext`" struggle produced
+  `val applicationContext = ThymeApplication()` — a hand-built
+  Application husk, the second-construct-OS-component family's next
+  member after `MainActivity()`. The correct shape: the context
+  **arrives as a parameter** of `onReceive`, is guard-unwrapped,
+  and serves everything (manager fetch, envelope, builder). The
+  husk was deleted in favor of the parameter (it never fired a code
+  path this sitting — its crash was waiting for its first caller).
+- **Behavior deltas, all per the locked F5 design, accepted
+  consciously:** manual skip is silent from now on (a user act is
+  not a deadline completion); deadline completions ring even with
+  the app open (the receiver is blind to the UI); a catch-up burst
+  rings exactly once, structurally (one call → one answer).
+- **Battery:** user-verified green this sitting — the deadline bell
+  rings with the app closed; expected-silent cases stay silent.
+- **Review catch recorded:** a dead
+  `import com.class1c.thyme.ThymeApplication` remains in the
+  receiver (only the companion import is used) — delete on next
+  touch.
+
 ### 2.6 F6 — `POST_NOTIFICATIONS` runtime permission (13+)
 
 **Files:** `features/pomodoro/PomodoroScreen.kt` (first-Start request
@@ -873,7 +933,7 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 | F2 | Timekeeping | **Locked 2026-10-21 — model variant B**: stored `isRunning` (constant `false` default only, never a computed default); pair discipline at every writer (`isRunning = true` ⇔ fresh future `endTime`, same atomic copy); `endTime` = "appointment as booked," kept as stale fiction across pause; freeze in `pause()`; sentinel `0` = no-appointment (pristine / auto-start-OFF landing); ticker + job/cancel machinery deleted. Variant A (derive the flag) stays a one-file future swap while the `session.isRunning` access-path rule holds. **Display cadence (locked 2026-10-21, landed 2026-10-22 — user-built frame-clock loop):** vsync-sampled display over the exposed `endTime` (sub-frame accurate; zero work unrendered; `_tick` heartbeat retired; paused = snapshot binding; no fixed-interval pulse — its error is bounded by its period; wall-second alignment and deadline-anchored pulses both rejected). Landed shape + lessons in §2.1 item 1 |
 | F3 | Foreground service | specialUse FGS; notification countdown via OS chronometer anchored to `endTime`; starts only from user tap; survives/auto-renders across auto-start; stops on pause/end. **Landed 2026-10-23, battery green** (shape record in §2.2's status) |
 | F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor. **Skeleton landed 2026-10-23 with green battery** (details in §2.1 item 2's status) |
-| F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there). **Addendum 2026-10-25:** heads-up popup on the bell card (channel importance HIGH), sound = the notification chime (ringtone melody rejected by ear), and VIBRATE manifest-cleared — full record in the status's addendum. **Addendum 2 (same day):** tap-to-open envelopes on both cards (launch intent fetched via the package manager — the manifest stays the entry-screen's single source); the declaration-timing crash rule recorded in final form |
+| F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there). **Addendum 2026-10-25:** heads-up popup on the bell card (channel importance HIGH), sound = the notification chime (ringtone melody rejected by ear), and VIBRATE manifest-cleared — full record in the status's addendum. **Addendum 2 (same day):** tap-to-open envelopes on both cards (launch intent fetched via the package manager — the manifest stays the entry-screen's single source); the declaration-timing crash rule recorded in final form. **Addendum 3 (2026-10-25, final shape):** the bell moved into `TimerAlarmReceiver` gated on `completeExpiredPhase(): Boolean` — stale alarms silent, one-per-catch-up structural, manual skip silent by design; stateless-receiver and receiver-is-not-a-Context lessons verified on device |
 | F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash |
 | F7 | HyperOS onboarding | battery-exemption dialog + MIUI autostart guidance rows |
 | F8 | Overdue policy | **A — fast-forward.** Trust timestamps: consume every missed phase in order until a future `endTime` (or paused-full landing); single chime; hook points = alarm receiver + app re-entry. **Landed 2026-10-24** (private catch-up loop, single gated public entry, both hooks wired — battery green, full record in §2.4's status) |
