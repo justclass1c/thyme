@@ -1,11 +1,17 @@
 package com.class1c.thyme.features.pomodoro.settings
 
 import android.Manifest
+import android.app.AlarmManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -58,14 +65,35 @@ import androidx.compose.ui.unit.em
 import androidx.core.content.ContextCompat
 import com.class1c.thyme.features.pomodoro.settings.popups.SaveChangesPopup
 import com.class1c.thyme.ui.theme.poppinsFamily
+import androidx.core.net.toUri
+import com.class1c.thyme.R
+import com.class1c.thyme.features.pomodoro.settings.perms.getAutostartAPI
 
 @Composable
 fun PomodoroSettingsScreen(state: PomodoroSettingsUIState, onEvent: (PomodoroSettingsEvent) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+
+    val hasNotifPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    val notifIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
         .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) // required to access system notification settings
         .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) } // addFlag needed to start the settings screen outside the app
+
+    val powerManager = context.getSystemService(PowerManager::class.java)
+    val hasIgnoreBatteryOptPermissionRequest = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    val batterySettingsIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+        .setData(("package:" + context.packageName).toUri())
+        .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) } // addFlag needed to start the settings screen outside the app
+
+    val autoStartIntent = Intent()
+    autoStartIntent.component = getAutostartAPI(context)
+    var showFallback by remember { mutableStateOf(false) }
+    val autostartInstruction = stringResource(R.string.autostart_instruction)
+
+    val alarmManager = context.getSystemService(AlarmManager::class.java)
+    val scheduleExactAlarmIntent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+        .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+
 
     BackHandler() { onEvent(PomodoroSettingsEvent.RequestBack) }
 
@@ -123,6 +151,8 @@ fun PomodoroSettingsScreen(state: PomodoroSettingsUIState, onEvent: (PomodoroSet
                         colors = SwitchDefaults.colors(),
                     )
                 }
+
+                HorizontalDivider()
 
                 SettingRow("Total Work Duration:") {
                     NumberField(inputValue = state.draft.targetWorkMinutes / 60, onValueChange = {
@@ -261,7 +291,10 @@ fun PomodoroSettingsScreen(state: PomodoroSettingsUIState, onEvent: (PomodoroSet
                 }
 
 
-                if (!hasPermission) {
+                // TODO: move to later-implemented app settings
+                if (!hasNotifPermission) {
+                    HorizontalDivider()
+
                     SettingRow("Enable Notifications?") {
                         Button(
                             modifier = Modifier.width(100.dp).height(45.dp),
@@ -271,9 +304,87 @@ fun PomodoroSettingsScreen(state: PomodoroSettingsUIState, onEvent: (PomodoroSet
                                     val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
                                     if (!hasPermission) { // if permission not enabled
-                                        context.startActivity(intent)
+                                        context.startActivity(notifIntent)
                                     }
                                 }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                        ) {
+                            Text(
+                                text = "Yes",
+                                fontFamily = poppinsFamily,
+                                color = MaterialTheme.colorScheme.background
+                            )
+                        }
+                    }
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasIgnoreBatteryOptPermissionRequest) {
+                    HorizontalDivider()
+
+                    SettingRow("Ignore Battery Optimizations?") {
+                        Button(
+                            modifier = Modifier.width(90.dp).height(35.dp),
+                            onClick = {
+                                    context.startActivity(batterySettingsIntent)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                        ) {
+                            Text(
+                                text = "Yes",
+                                fontFamily = poppinsFamily,
+                                color = MaterialTheme.colorScheme.background
+                            )
+                        }
+                    }
+                }
+
+                if (!showFallback) {
+                    HorizontalDivider()
+
+                    SettingRow("Enable Autostart?") {
+                        Button(
+                            modifier = Modifier.width(90.dp).height(35.dp),
+                            onClick = {
+                                try {
+                                    context.startActivity(autoStartIntent)
+                                } catch (e: ActivityNotFoundException) {
+                                    showFallback = true
+                                } catch (e: SecurityException) {
+                                    showFallback = true
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                        ) {
+                            Text(
+                                text = "Yes",
+                                fontFamily = poppinsFamily,
+                                color = MaterialTheme.colorScheme.background
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = autostartInstruction,
+                        fontFamily = poppinsFamily
+                    )
+                }
+
+                if (Build.VERSION.SDK_INT >= 31 && !alarmManager.canScheduleExactAlarms()) {
+                    HorizontalDivider()
+
+                    SettingRow("Allow Schedule Alarms?") {
+                        Button(
+                            modifier = Modifier.width(90.dp).height(35.dp),
+                            onClick = {
+                                // check if permission for notification is enabled
+                                context.startActivity(scheduleExactAlarmIntent)
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary
@@ -370,3 +481,4 @@ private fun SettingButtons(label: String, onClick: () -> Unit, containerColor: C
         )
     }
 }
+
