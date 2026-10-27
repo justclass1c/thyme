@@ -1,189 +1,183 @@
-# Thyme — Glossary
+# Glosary — Thyme's house glossary
 
-*Words this project coined, and ordinary words this project gave a second
-job to. One entry = one breath of definition (a tiny example when it
-earns one). New entries append as sittings land.*
-
----
-
-## The intent envelope (three shelves)
-
-**Intent** — the message object one piece of code hands the system to
-deliver. Carries four kinds of cargo: the action, the data, the extras,
-and (sometimes) an explicit destination.
-
-**Action (the door)** — a string naming *which screen/process to
-deliver to*: built-in constants (`Settings.ACTION_...`), or app-owned
-keys (`com.class1c.thyme.SOMETHING`). The action decides the door;
-everything else is cargo.
-
-**Data shelf / `setData`** — the intent's *address* slot: a parsed
-`Uri` saying *what the message is about*
-(`"package:com.class1c.thyme"`, built as `("package:" + packageName).toUri()`).
-The battery-optimization dialog's door reads its "which app" from here.
-
-**Extras / `putExtra`** — labeled side-pockets (`putExtra(label, payload)`),
-read *by code inside the destination*, by name. The
-notification-settings door takes its "which app" here
-(`Settings.EXTRA_APP_PACKAGE` as the label, `context.packageName` as
-the payload — **label first, payload second**; the label/payload swap
-was a paid-for bug).
-
-**The shelf law** — *the action decides which shelf the receiving
-screen reads.* The same "which app?" answer rides the data line at one
-door and a pocket at another. There is no derivable rule: **foreign
-constant → Ctrl+click it and read its one-line contract; own intent →
-extras by default, your key, both written ends.** An unclaimed shelf
-(letter attached where the door reads nothing) is silently ignored —
-indistinguishable from sending nothing.
-
-**Explicit destination / `ComponentName`** — pointing at one screen
-*by full name* (package + class) instead of by action
-(I say "go to plot 17 on Miller Street" rather than "take me to a post
-office"). Technically writing the address; *not* a check —
-constructing it never verifies the door exists.
-
-**`ActivityNotFoundException`** — the phone's answer at delivery time
-to "no such door at this address." The **only** reliable trigger for a
-fallback, because only the phone's answer counts — pre-click checks
-re-read your own notes.
-
-**Attempt → caught fallback** — the row pattern for foreign gates:
-build, `startActivity` inside `try`, catch
-`ActivityNotFoundException` + `SecurityException`, and *change the
-row's shape* on catch rather than die or stay silent.
+Plain-language definitions of the words this project has coined and
+reused across sittings. A word earns an entry by being used in
+reviews, lessons, or plan records — it is not general Android
+vocabulary unless a sitting leaned on it.
 
 ---
 
-## Permissions & the gates
+## The intent's anatomy (the envelope)
 
-**The phone owns the ledger** — permission/exemption state lives in
-system storage, not in the app. The app may only *read it live*; the
-perpetual sin is storing a copy and having it rot. (Why rows are
-live-recomputed, never persisted.)
+**Envelope** — anything sent through `startActivity` (or an alarm
+delivery): one object that carries an action, optional data, optional
+extras. Called an envelope because the same object holds several
+kinds of paper, and the receiver only reads some of them.
 
-**Mirror (a live-checked row)** — a settings row whose very
-*visibility* is the answer to its own question, re-read at every
-recomposition: "exempt?" → row hidden when true. The app can open
-doors; it can never flip switches.
+**Door** — the screen (or receiver) that an intent's *action* names.
+Choosing the action constant is choosing which door opens; the door's
+own code decides which parts of the envelope it reads.
 
-**Reader-with-a-map** — what a correct row is: a read-only display of
-someone else's truth, wired to the legitimate door that reaches it.
+**The three shelves** — the parts of the envelope, each with a
+setter:
 
-**Permission species** — three, by grant timing: **install-time
-("normal")** — granted with no human (VIBRATE; cannot track user
-action, so never mirrors it); **runtime** — asked via dialog, the
-system keeps a count (POST_NOTIFICATIONS); **special access** —
-toggles in specific system pages (battery exemption, exact alarms,
-vendor autostart).
+| Shelf | Setter | Read by |
+|---|---|---|
+| *action* (the door) | constructor / `setAction` | the OS — picks the destination |
+| *data* (the address line) | `setData(`/`.toUri()`, a parsed `Uri` | doors whose contract asks "about *what*?", e.g. the battery-exemption dialog, `package:` URIs |
+| *extras* (labeled pockets) | `putExtra(label, payload)` | code *inside* the door, after landing, e.g. `EXTRA_APP_PACKAGE` on the notification-settings page |
 
-**Two-denial patience** — the system's built-in exhaustion for
-runtime-permission dialogs: after two denials it stops showing them.
-Capstone lesson: *an exhaust-recovery surface must act with tools that
-cannot exhaust* (a deep link, not a replayed dialog).
+The shelf is not a style choice: each system action's documentation
+names the shelf it reads. Foreign constant → ctrl-click it and read
+its one-line contract. Own intent (you wrote both ends) → extras by
+default, and the label must match at both ends.
 
-**Doze** — the phone's deep-sleep state that idles ordinary apps; the
-timer's survival depends on the battery-optimization exemption
-(`isIgnoringBatteryOptimizations` as its mirror,
-`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` manifest claim to earn the
-request dialog).
+**Label-then-payload** — the `putExtra` reading order: the
+system-defined key name first, the value second. Swapping them
+produces a door that searches for a package literally named
+`"android.provider.extra.APP_PACKAGE"`.
 
-**Admissions guard / autostart** — the vendor's (MIUI/HyperOS) private
-per-app switch: "may this app start running when nobody tapped it?"
-No public read, no dialog, no write — only *attempt the folklore
-address, else teach the path.* (Installs reset none of these; they
-reset the *runtime* ledger.)
+**Unclaimed letter** — envelope content attached to a door that
+reads that shelf: compiles, runs, and is silently ignored. The
+classic case was a per-app extra handed to a list screen that reads
+no recipient at all; the mirror case was a `package:` data URI on the
+exact-alarm door, which takes no input.
 
-**Folklore (in the address sense)** — vendor screen names copied from
-community knowledge: real on some builds, rotting silently on others.
-Keep only with the catch as the safety net, and label the verified vs
-the unverified.
+**Folklore address** — a `ComponentName` pointing at a vendor's
+private screen (the security center's autostart manager), learned by
+community hearsay rather than an official constant. Constructing it
+never checks the phone — it's an address written on an envelope; only
+the phone's answer at delivery (or its exception) tells whether the
+door exists.
 
-**Package visibility** — from Android 11, an app cannot *see* other
-apps' packages unless its manifest declares (`<queries>`) a reason.
-Why pre-flight "does this component exist?" resolve-checks can lie,
-and why `startActivity` + catch stays the honest probe.
+## Walking a user through a gate
 
-**Wake-up** — unattended machine-initiated start (alarm delivery,
-proc-revival, boot). The autostart guard's whole jurisdiction.
+**Gate** — a phone-side switch that blocks background behavior and
+that the app cannot flip itself. Four family members so far:
+notifications (Android), battery-optimization exemption (Android),
+exact alarms (Android), autostart (vendor-private).
 
----
+**The three verbs** — what an app may do about a gate, limited by
+who owns it: **ask** (request a dialog or permission), **mirror**
+(read and display the current state), **walk** (deep-link the user to
+the switch). Autostart allows only attempt/walk — no read, no
+request; write belongs to the vendor.
 
-## State & its species
+**Mirror** — a live-checked settings row that displays a fact owned
+elsewhere (the grant ledger, the PowerManager, the AlarmManager),
+recomputed at composition, stored nowhere. Storing a local copy of a
+phone-owned fact is a mirror one layer above the truth.
 
-**State lives where the ownership lives** — the three-species census:
-① the phone's system pages (permissions, switches) — read live, never
-copied; ② the session in **RAM** (`InMemoryTimerRepository` — one
-writer; lost on hard kill, hence no boot receiver yet); ③ **remembered
-composition state** (`remember { mutableStateOf }`) — lives as long as
-the screen does, resets on return.
+**Reader with a map** — a mirror row: it reports the state it
+cannot change, and its only action is the map (`deep link`) to the
+owner's switch. Never build a toggle row for a state the app can't
+write.
 
-**Remembered state** — a composition-local variable that survives
-recomposition (re-rendering) but not screen teardown. Enough memory
-for "the phone said no" fallbacks without a ledger.
+**Deep link** — an intent to a system settings page, usually the
+user's own app's page (`ACTION_APP_NOTIFICATION_SETTINGS` +
+`EXTRA_APP_PACKAGE`). Opening one's *own* settings page is always
+legal and needs no permission.
 
-**Shape-changing row** — a row whose content switches on remembered
-state (button → instructional copy). Better than a popup: the answer
-stays put and reads at the user's pace.
+**The exhaustion rule** — an exhaust-recovery surface must act with
+tools that cannot exhaust. The system permission dialog stops
+appearing after two denials, precisely in the state the mirror row
+exists for — so the row deep-links to a switch, never re-plays the
+dialog.
 
----
+**Always-visible row** — a mirror's honest substitute where no read
+API exists (autostart): a static row that states the gate and its
+way through, rather than a fluent row that would lie.
 
-## The crash & silence families (paid tuition)
+**Attempt → caught fallback** — the autostart row's design: try
+`startActivity` on the explicit component; when the phone throws
+(no such door, or access denied), render instructional copy. The
+fallback triggers on the *failure of the attempt* — never on a
+pre-click null-check of a property you set yourself.
 
-**Compute-and-never-attach family** — the object is *computed* and
-then never *delivered/handed anywhere*: a Toast built without
-`.show()`, a sound on a builder never attached, an envelope bound too
-late. Alias rule: a factory whose result you don't hand to anything
-else needs a finalizer or a receiver.
+**Shape-changing row** — the fallback rendered *in place*: the row
+swaps its button for instructional text when the attempt fails. Copy
+format follows its job: confirmations fit transient bubbles
+(toasts), instruction sets need persisting surfaces.
 
-**The format law** — *copy format follows its job:* confirmations fit
-transient bubbles (toasts); instruction sets need persisting surfaces
-(row copy, strings.xml).
+**Pre-paid permission** — a manifest `<uses-permission>` whose cost
+was paid at declarations time (a "normal" install-time grant or a
+future-proof declaration), so later code assumes nothing: whether it
+answers "granted" live is the owner's affair — `checkSelfPermission`
+on a "normal" permission can ride a fact that never changes, which is
+why the battery row's first draft mirrored the wrong layer.
 
-**Declaration-time crash family** — code that runs *at object
-creation* (`MainActivity()` / `ThymeApplication()` bodies) executes
-before the context attaches / injection completes; anything
-context-dependent there stops the machine at launch.
+## Failure families (bug species, named to be recognized)
 
-**Promise vs check** — `@RequiresApi(API)` is a *promise to the
-compiler's checker* (no runtime effect, wrong to use on broadly
-reachable functions); `if (Build.VERSION.SDK_INT >= ...)` is a *check
-that decides at runtime*. The real failure an unchecked new API
-causes: **`NoSuchMethodError`** — the machine looking up a method the
-phone's OS doesn't have, and stopping. Short-circuit `&&` order makes
-the check *load-bearing*: unsafe call second, never evaluated when the
-first condition fails.
+**Compute-and-never-attach** — building a value and never delivering
+it: a ringtone computed and never set on the channel; a
+`Toast.makeText(...)` without `.show()`; an envelope built but not
+bound. Factory results with no consumer need their finalizer or
+their attachment call.
 
-**android.R trap** — autocomplete's wrong `R`: the *platform's own*
-resources. The app's `R` is autogenerated into the **namespace
-package** (`com.class1c.thyme`); files in subpackages import it by
-full address.
+**Wrong door** — right-looking intent, wrong action constant: a
+letter the door never reads is indistinguishable from no letter.
+Silence (nothing opens, or a useless page opens) is the symptom,
+never a crash.
 
----
+**Method-lookup stop** (`NoSuchMethodError`) — calling a method the
+device's OS version doesn't have: the runtime looks the name up,
+finds nothing, stops without mercy. Detonates only on the older
+phone, exactly when nobody is watching.
 
-## Notification apparatus
+**A promise is not a check** — `@RequiresApi(...)` speaks to the
+compile-time checker and inserts no runtime decision; a
+`Build.VERSION.SDK_INT >=` test decides at runtime. Silencing a
+squiggle with a promise is not protecting an older phone — only the
+guard is. Order matters inside `&&`: short-circuit evaluation lets
+the SDK check fire first, so the dangerous call is never evaluated
+there.
 
-**Channel** — a named delivery lane (importance decides pop-up vs
-silent, etc.). Settings are user-locked at first creation: *an
-id-bump rule* ("Ringtone2"→3→4...) is the only migration. **Ghost
-channels** — old-bump leftovers still on the device, awaiting a
-`deleteNotificationChannel` sweep (polish shelf).
+**Declaration-time crash** — code running when a class is declared
+but before its context exists (`MainActivity()` /
+`ThymeApplication()` husks; property initializers run before Android
+attaches the app and injects collaborators). Logic that needs
+context belongs in `onCreate` and friends, not initializers.
 
-**FGS (foreground service)** — a process kept visibly alive while the
-timer runs; only the user tap starts it; it observes and renders, and
-only the repository writes.
+**State lives where the ownership lives** — one of three species:
+phone-owned facts (permissions, switches → mirror live, never store);
+app-owned session memory (rows, drafts → remembered state, survives
+recomposition, not navigation); and persistent truth (DataStore —
+deliberately unused so far). Migrating a fact between owners is a
+design change, not a refactor.
 
----
+## App-specific nouns
 
-## Verbs of the trade
+**Single writer** — only `InMemoryTimerRepository` mutates the
+session. Receivers are one-line thunks into it; the foreground
+service only observes and renders; screens only start it.
 
-**Receipt (a device receipt)** — hard evidence from the running
-phone, not belief from code: `dumpsys` fingerprints, an appops read,
-a logcat line captured before rotation.
+**Thunk receiver** — a `BroadcastReceiver` so small it does one
+delegation call under the entry gate; also stateless (a fresh object
+per delivery — device-proven), and never treated as a `Context` (the
+context arrives as the `onReceive` parameter).
 
-**Battery (a test)** — the script of manual checks per sitting; "green"
-= run and passed, on the device.
+**Catch-up** — the overdue policy: trust stored timestamps, consume
+every missed phase in order until a future phase-end, ring once per
+burst, and run from *two* hook points: the alarm receiver and app
+re-entry.
 
-**Wrong door, right letter** — symptom of an intent resolving but
-the wrong target or ignoring its cargo (the plural
-`...OPTIMIZATION_SETTINGS` list door: legal, silent, useless).
+**Ghost channels** — notification channels from retired id strings,
+still sitting in the phone's settings because channels are
+never silently rewritten. House rules: **id-bump rule** (changing a
+channel's settings means a new id, leaving the old one behind as a
+ghost) and the promised sweep (`deleteNotificationChannel` for the
+retirees).
+
+## Device facts that shaped design
+
+**HyperOS / the vendor gate family** — the phone (POCO, HyperOS 3)
+adds private per-app switches under Android's own permissions.
+Buried screens are findable by folklore addresses or by
+`adb shell am start -a android.settings.REQUEST_SCHEDULE_EXACT_ALARM`.
+
+**Receipt gallery** — shell commands that print ground truth:
+alarms currently armed → `adb shell dumpsys alarm | grep -i thyme`
+(exact arm = `window=0 exactAllowReason=permission`; fallback arm =
+`window=+Ns`); exemption state → `dumpsys deviceidle whitelist`;
+permission grant ledger → `cmd appops get <pkg> | grep -i exact`.
+Logcat rotates: a proof may already be gone — rerun the failure.
