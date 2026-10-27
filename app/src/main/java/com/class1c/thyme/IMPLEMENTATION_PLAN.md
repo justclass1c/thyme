@@ -126,7 +126,7 @@ components (activities, services, receivers, channels).
 | **2.4 — F8 catch-up** | `data/repository/InMemoryTimerRepository.kt` · `alarm/TimerAlarmReceiver.kt` · `features/pomodoro/PomodoroViewModel.kt` · (optional) `features/pomodoro/PomodoroProgress.kt` | ✅ landed 2026-10-24 (battery green) — status in §2.4 |
 | **2.5 — F5 chime** | (final shape) `alarm/TimerAlarmReceiver.kt` · `ThymeApplication.kt` · (optional) `app/src/main/res/values/strings.xml` | ✅ landed 2026-10-24 (battery green); **final shape reached 2026-10-25 — bell lives in the receiver behind the Boolean gate** — status + addenda 1–3 in §2.5 |
 | **2.6 — F6 POST_NOTIFICATIONS** | `features/pomodoro/PomodoroScreen.kt` (seam) · `features/pomodoro/settings/PomodoroSettingsScreen.kt` (mirror) · `AndroidManifest.xml` (pre-paid) | ✅ **landed 2026-10-25** — seam + settings-row mirror + batteries green (fresh-install prompt, denial patience, grant round-trip) — status in §2.6 |
-| **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `features/pomodoro/settings/perms/GetAutostartAPI.kt` · `app/src/main/res/values/strings.xml` | ⏳ **battery-exemption + autostart rows landed 2026-10-25/27** (request dialog + shape-changing autostart row with in-row fallback copy) — exact-alarm row remaining; status in §2.7 |
+| **2.7 — F7 HyperOS onboarding** | `features/pomodoro/settings/PomodoroSettingsScreen.kt` · `AndroidManifest.xml` · `features/pomodoro/settings/perms/GetAutostartAPI.kt` · `app/src/main/res/values/strings.xml` | ✅ **landed & closed 2026-10-25/27** — all four rows (notifications, battery exemption, autostart w/ fallback, exact alarms w/ guard); batteries green; code-commit pile pending — status in §2.7 |
 
 Package placement: **new packages sit beside the existing ones at the
 `com.class1c.thyme` level** — `alarm/` and `service/` are OS entry
@@ -1099,6 +1099,53 @@ green):**
   deepest), and the 2.7 code-commit pile (manifest, settings screen,
   helper file, `strings.xml` are uncommitted as of this record).
 
+**Status (2026-10-27, closing — the exact-alarm row landed; 2.7
+shuts):**
+
+- **The row:** visible only while `AlarmManager.canSchedule
+  ExactAlarms()` says false (live mirror, the same read-the-owner
+  pattern as the other three rows); the click opens
+  `ACTION_REQUEST_SCHEDULE_EXACT_ALARM` — no input on the envelope
+  (the toggle screen names the caller itself), constructor + flags
+  only after the battery door's copied data-URI was caught and
+  deleted.
+- **The sitting's lesson — a promise is not a check.** First draft
+  hushed the new-API squiggle with `@RequiresApi(Build.VERSION_CODES.S)`
+  on the *whole settings screen* — an annotation ("I promise this
+  runs only on Android 12+") inserts no runtime decision; it just
+  silences the checker, and the vow was false (the screen is
+  reachable on every phone minSdk 28 allows, down through APIs
+  28–30, where `canScheduleExactAlarms()` — a method absent from the
+  older AlarmManager — raises `NoSuchMethodError` the instant it is
+  looked up). Landed fix: the live guard
+  `Build.VERSION.SDK_INT >= 31 && !...canScheduleExactAlarms()`,
+  and the **order is the load-bearing part**: `&&` evaluates
+  left-to-right and short-circuits, so on an old phone the dangerous
+  method is *never evaluated* — the row simply hides. Recorded for
+  future API-age moments: **`@RequiresApi` = promise to the checker;
+  `SDK_INT >=` = decision at runtime. Guards decide outcomes.**
+- **The `<31` branch is settled by history, not avoided:** on
+  Android 9–11 there was no special-access gate at all — the
+  manifest's `SCHEDULE_EXACT_ALARM` declaration (pre-paid in an
+  earlier phase) granted exact alarms at install — so the old
+  phone's honest mirror answer is "yes," the row hides, and one
+  guarded read covers every path.
+- **Micro-clean at closing:** paste-ghost comment deleted from the
+  row's onClick; the `31` vs `Build.VERSION_CODES.S` spelling noted
+  as cosmetic; row label remains a hardcoded literal (the shared
+  `strings.xml` polish debt of this row family).
+- **Battery green, user-verified on device (2026-10-27):** row shows
+  from the ungranted state → tap opens the buried "Alarms &
+  reminders" screen → allow → row hides at the next recomposition —
+  the round-trip that also re-proves the stored lesson (*the app can
+  open that screen itself*) through a UI door.
+- **2.7 closes the build order.** All four rows stand: notifications
+  (system dialog + settings mirror), battery exemption (request
+  dialog + PowerManager mirror), autostart (attempt + caught
+  fallback + in-row copy), exact alarms (guard + canSchedule mirror +
+  direct door). The remaining work in this block is only the user's
+  code commit of the pile.
+
 ---
 
 ## 3. Phase F device checklist
@@ -1147,7 +1194,7 @@ Background/scene battery tests (screen OFF, 10-min cycles):
 | F4 | Alarm backup | `setExactAndAllowWhileIdle` scheduled per phase-start-family; cancel on pause/reset; receiver = the single completion actor. **Skeleton landed 2026-10-23 with green battery** (details in §2.1 item 2's status) |
 | F5 | Completion feedback | chime + vibrate from receiver only, exactly once per catch-up burst. **Landed 2026-10-24 as a service-side experiment** (battery green — deviations + final-shape receiver handover recorded in §2.5's status; two open verifiers there). **Addendum 2026-10-25:** heads-up popup on the bell card (channel importance HIGH), sound = the notification chime (ringtone melody rejected by ear), and VIBRATE manifest-cleared — full record in the status's addendum. **Addendum 2 (same day):** tap-to-open envelopes on both cards (launch intent fetched via the package manager — the manifest stays the entry-screen's single source); the declaration-timing crash rule recorded in final form. **Addendum 3 (2026-10-25, final shape):** the bell moved into `TimerAlarmReceiver` gated on `completeExpiredPhase(): Boolean` — stale alarms silent, one-per-catch-up structural, manual skip silent by design; stateless-receiver and receiver-is-not-a-Context lessons verified on device |
 | F6 | Runtime permission | `POST_NOTIFICATIONS` requested at first Start; deny = degrade-not-crash. **Landed & closed 2026-10-25:** seam + settings-row mirror, batteries green (fresh-install prompt, denial patience, grant round-trip) — full shape + the envelope-lessons in §2.6's status |
-| F7 | HyperOS onboarding | battery-exemption dialog + MIUI autostart guidance rows, exact-alarm guiding row |
+| F7 | HyperOS onboarding | battery-exemption dialog + MIUI autostart guidance rows, exact-alarm guiding row. **Landed & closed 2026-10-25/27:** all four rows + batteries green; the promise-is-not-a-check lesson (`@RequiresApi` vs `SDK_INT` guards) in §2.7's closing status |
 | F8 | Overdue policy | **A — fast-forward.** Trust timestamps: consume every missed phase in order until a future `endTime` (or paused-full landing); single chime; hook points = alarm receiver + app re-entry. **Landed 2026-10-24** (private catch-up loop, single gated public entry, both hooks wired — battery green, full record in §2.4's status) |
 | F9 | HyperIsland | Deferred — research task in its own later phase |
 
